@@ -150,7 +150,7 @@ def Job(joblist):
 
 
 # Amount of multithreading tasks/cpus
-Number_Workers = 125
+Number_Workers = 100
 # Export path of the data
 train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
 
