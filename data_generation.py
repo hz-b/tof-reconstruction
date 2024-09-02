@@ -112,7 +112,7 @@ def Job(joblist):
             sigmay = np.random.rand() * sigmay_max
             intensity = np.random.rand()
             Y = add_gauss(Y, sigmax, sigmay, centerx, centery, intensity)
-        hot_ones=np.random.randint(0,high=10)
+        hot_ones=np.random.randint(0,high=15)
         for hotty in range(hot_ones):
             x=np.random.randint(0,high=PHASE_STEPS)
             y=np.random.randint(0,high=ENERGY_STEPS)
