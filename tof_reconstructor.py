@@ -553,7 +553,6 @@ if __name__ == "__main__":
         log_every_n_steps=100000,
         check_val_every_n_epoch=1,
         callbacks=[lr_monitor],
-        precision='bf16-mixed',
     )
     trainer.init_module()
 
