@@ -148,6 +148,13 @@ class PerImageNormalize(torch.nn.Module):
                 return img
         return (img - img_min) / (img.max() - img_min)
 
+class CircularPadding(torch.nn.Module):
+    def __init__(self, padding: int):
+        super().__init__()
+        self.padding = padding
+
+    def forward(self, img):
+        return torch.nn.functional.pad(img, (self.padding,self.padding), "circular")
 
 class PruneNegative(torch.nn.Module):
     def __init__(self):

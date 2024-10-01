@@ -19,6 +19,7 @@ from torchvision import models
 from datamodule import DefaultDataModule
 from dataset import H5Dataset
 from transform import (
+    CircularPadding,
     DisableRandomTOFs,
     DisableSpecificTOFs,
 
@@ -47,15 +48,18 @@ class TOFReconstructor(L.LightningModule):
         disabled_tofs_min=1,
         disabled_tofs_max=3,
         dropout_rate: float = 0.0,
+        padding=0
     ):
         super(TOFReconstructor, self).__init__()
         self.save_hyperparameters(ignore=["last_activation"])
         self.channels = channels
+        self.padding = padding
+        self.tof_count = 16 + 2 * self.padding
         if cae:
             self.net = TOFReconstructor.create_cae()
         else:
             self.net = TOFReconstructor.create_sequential(
-                self.channels * 16,
+                self.channels * self.tof_count,
                 100,
                 layer_size,
                 blow=blow,
@@ -281,7 +285,7 @@ class TOFReconstructor(L.LightningModule):
         x = x.flatten(start_dim=1)
         y = y.flatten(start_dim=1)
         if self.cae:
-            x = x.unflatten(1, (-1, 16)).unflatten(0, (-1, 1))
+            x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         y_hat = self.net(x)
         if self.cae:
             y_hat = y_hat.flatten(start_dim=1)
@@ -301,7 +305,7 @@ class TOFReconstructor(L.LightningModule):
         x = x.flatten(start_dim=1)
         y = y.flatten(start_dim=1)
         if self.cae:
-            x = x.unflatten(1, (-1, 16)).unflatten(0, (-1, 1))
+            x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         y_hat = self.net(x)
         if self.cae:
             y_hat = y_hat.flatten(start_dim=1)
@@ -352,7 +356,7 @@ class TOFReconstructor(L.LightningModule):
         if len(y) > 0:
             plt.clf()
             tensor_list = [
-                tensor.reshape(-1, self.channels, 16).cpu().detach().numpy()
+                tensor.reshape(-1, self.channels, self.tof_count).cpu().detach().numpy()
                 for tensor in [x, y_hat, y]
             ]
             fig = TOFReconstructor.plot_data(
@@ -455,10 +459,10 @@ class TOFReconstructor(L.LightningModule):
         with torch.no_grad():
             self.real_images = self.real_images.to(self.device)
             real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
-                self.real_images, self.forward, None
+                self.real_images, self.forward, CircularPadding(self.padding)
             )
             _, evaluated_real_data_2_tof = TOFReconstructor.evaluate_real_data(
-                self.real_images, self.forward, DisableSpecificTOFs([7,15])
+                self.real_images, self.forward, Compose([DisableSpecificTOFs([7,15]), CircularPadding(self.padding)])
                 )
             self.create_plot("real", real_images, evaluated_real_data, evaluated_real_data_2_tof, labels=["input", "prediction", "pred_-2_tof"])
 
@@ -502,11 +506,13 @@ class TOFReconstructor(L.LightningModule):
 if __name__ == "__main__":
     disabled_tofs_min = 1
     disabled_tofs_max = 3
+    padding = 2
 
     target_transform = Compose(
         [
             Reshape(),
             PerImageNormalize(),
+            CircularPadding(padding),
         ]
     )
 
@@ -520,6 +526,7 @@ if __name__ == "__main__":
             DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
             #DisableSpecificTOFs([3,11]),
             PerImageNormalize(),
+            CircularPadding(padding),
         ]
     )
     h5_files = list(glob.iglob("datasets/sigmaxy_7_peaks_0_10_hot_10/shuffled_*.h5"))
@@ -528,6 +535,7 @@ if __name__ == "__main__":
         path_list=h5_files,
         input_transform=input_transform,
         target_transform=target_transform,
+        load_max=None,
     )
     workers = psutil.Process().cpu_affinity()
     num_workers = len(workers) if workers is not None else 0
@@ -539,7 +547,7 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding
     )
     wandb_logger = WandbLogger(
         name="ref2_60_10h10_7p_general", project="tof_reconstructor", save_dir=model.outputs_dir
