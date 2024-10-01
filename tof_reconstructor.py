@@ -529,7 +529,7 @@ if __name__ == "__main__":
             CircularPadding(padding),
         ]
     )
-    h5_files = list(glob.iglob("datasets/sigmaxy_7_peaks_0_10_hot_10/shuffled_*.h5"))
+    h5_files = list(glob.iglob("datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5"))
 
     dataset = H5Dataset(
         path_list=h5_files,
@@ -550,7 +550,7 @@ if __name__ == "__main__":
         disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding
     )
     wandb_logger = WandbLogger(
-        name="ref2_60_10h10_7p_general", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref2_60_20h15_7p_general", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
