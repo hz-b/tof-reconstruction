@@ -246,6 +246,7 @@ class Evaluator:
         plt.grid(alpha=0.8)
         cb = plt.colorbar()
         cb.ax.tick_params(labelsize=20)
+        cb.ax.set_ylabel('MSE', fontsize=20)
         plt.xlabel("TOF position", fontsize=20)
         plt.ylabel("TOF position", fontsize=20)
         plt.savefig(self.output_dir + "2_tof_failed.png")
