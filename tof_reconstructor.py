@@ -193,7 +193,21 @@ class TOFReconstructor(L.LightningModule):
                     nn.BatchNorm2d(hidden_dims[i + 1]),
                 )
             )
-        modules.append(nn.ConstantPad2d((0, 0, 0, -5), 0))
+        #modules.append(nn.ConstantPad2d((0, 0, 0, -5), 0))
+
+                # Final adjustment layer to ensure output of shape [batch_size, 1, 60, 20]
+        modules.append(
+            nn.Sequential(
+                nn.Conv2d(
+                    hidden_dims[-1],
+                    out_channels=1,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                ),
+                nn.Upsample(size=(60, 20), mode='bilinear', align_corners=False)  # Reshape to (60, 20)
+            )
+        )
 
         return nn.Sequential(*modules)
 
@@ -331,6 +345,8 @@ class TOFReconstructor(L.LightningModule):
         self.on_validation_epoch_end()
 
     def forward(self, x):
+        if self.cae:
+            x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         return self.net(x)
 
     @staticmethod
