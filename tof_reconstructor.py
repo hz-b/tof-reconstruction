@@ -565,6 +565,7 @@ if __name__ == "__main__":
     model = TOFReconstructor(
         disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding
     )
+    #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
         name="ref2_60_20h15_7p_general", project="tof_reconstructor", save_dir=model.outputs_dir
     )
