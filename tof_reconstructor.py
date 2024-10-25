@@ -44,7 +44,7 @@ class TOFReconstructor(L.LightningModule):
         last_activation=nn.Sigmoid(),
         lr_scheduler: str | None = "plateau",
         outputs_dir="outputs/",
-        cae=False,
+        architecture="mlp",
         disabled_tofs_min=1,
         disabled_tofs_max=3,
         dropout_rate: float = 0.0,
@@ -55,8 +55,10 @@ class TOFReconstructor(L.LightningModule):
         self.channels = channels
         self.padding = padding
         self.tof_count = 16 + 2 * self.padding
-        if cae:
+        if architecture == "cae":
             self.net = TOFReconstructor.create_cae()
+        elif architecture == "unet":
+            self.net = UNet2()
         else:
             self.net = TOFReconstructor.create_sequential(
                 self.channels * self.tof_count,
@@ -69,7 +71,6 @@ class TOFReconstructor(L.LightningModule):
                 mirror_for_autoencoder=True,
                 dropout_rate=dropout_rate,
             )
-        self.cae = cae
         self.validation_plot_len = 5
         self.learning_rate = learning_rate
         self.lr_scheduler = lr_scheduler
@@ -77,6 +78,7 @@ class TOFReconstructor(L.LightningModule):
         self.optimizer = optimizer
         self.disabled_tofs_min = disabled_tofs_min
         self.disabled_tofs_max = disabled_tofs_max
+        self.architecture = architecture
 
         self.real_images = TOFReconstructor.get_real_data(
             108, 108 + 5, "datasets/210.hdf5"
@@ -211,6 +213,7 @@ class TOFReconstructor(L.LightningModule):
 
         return nn.Sequential(*modules)
 
+
     class ResNetUNet(nn.Module):
         def __init__(self, n_class):
             super().__init__()
@@ -298,10 +301,10 @@ class TOFReconstructor(L.LightningModule):
         x, y = batch
         x = x.flatten(start_dim=1)
         y = y.flatten(start_dim=1)
-        if self.cae:
+        if self.architecture != 'mlp':
             x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         y_hat = self.net(x)
-        if self.cae:
+        if self.architecture != 'mlp':
             y_hat = y_hat.flatten(start_dim=1)
         loss = nn.functional.mse_loss(y_hat, y)
         self.log("train_loss", loss, prog_bar=True, logger=True)
@@ -318,10 +321,10 @@ class TOFReconstructor(L.LightningModule):
         x, y = batch
         x = x.flatten(start_dim=1)
         y = y.flatten(start_dim=1)
-        if self.cae:
+        if self.architecture != 'mlp':
             x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         y_hat = self.net(x)
-        if self.cae:
+        if self.architecture != 'mlp':
             y_hat = y_hat.flatten(start_dim=1)
         if self.validation_y_plot_data.shape[0] < self.validation_plot_len:
             append_len = self.validation_plot_len - self.validation_y_plot_data.shape[0]
@@ -345,7 +348,7 @@ class TOFReconstructor(L.LightningModule):
         self.on_validation_epoch_end()
 
     def forward(self, x):
-        if self.cae:
+        if self.architecture != 'mlp':
             x = x.unflatten(1, (-1, self.tof_count)).unflatten(0, (-1, 1))
         return self.net(x)
 
@@ -518,11 +521,102 @@ class TOFReconstructor(L.LightningModule):
 
         return optimizer
 
+class UNet2(nn.Module):
+    def __init__(self):
+        super(UNet2, self).__init__()
+        
+        # Encoder
+        self.enc1 = self.up(1, 32)
+        self.enc2 = self.up(32, 64)
+        self.enc3 = self.up(64, 128)
+        self.enc4 = self.up(128, 256)
+
+        # Bottleneck
+        self.bottleneck = self.up(256, 512)
+
+        # Decoder
+        self.dec4 = self.down(512, 256)
+        self.dec3 = self.down(512, 128)
+        self.dec2 = self.down(256, 64)
+        self.dec1 = self.down(128, 32)
+        self.dec0 = self.down(64, 1)
+
+    def up(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                stride=1,
+                padding=2,
+            ),
+            nn.Mish(),
+            nn.BatchNorm2d(out_channels),
+        )
+    
+    def down(self, in_channels, out_channels):
+         return nn.Sequential(
+                nn.ConvTranspose2d(
+                    in_channels,
+                    out_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=2,
+                    output_padding=0,
+                ),
+                nn.Mish(),
+                nn.BatchNorm2d(out_channels),
+            )
+    def calc_start_end_dim(self, dim_original, dim_target):
+        #print("orig", dim_original, "tar", dim_target)
+        start = (dim_original - dim_target) // 2
+        end = start + dim_target
+        #print("start", start, "end", end)
+        return start, end
+        
+    def prep_dec(self, input_dec, input_enc):
+        dim2 = self.calc_start_end_dim(input_enc.shape[2], input_dec.shape[2])
+        dim3 = self.calc_start_end_dim(input_enc.shape[3], input_dec.shape[3])
+        output_dec = input_dec[:, :, dim2[0]:dim2[1], dim3[0]:dim3[1]]
+        return output_dec
+
+    def forward(self, x):
+        # Encoder
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
+
+        # Bottleneck
+        bottleneck = self.bottleneck(enc4)
+
+        # Decoder
+        dec4 = self.dec4(bottleneck)
+        #print("dec", dec4.shape)
+        #print("enc", enc4.shape, "prep_dec", prep_dec4.shape)
+        #return x
+        dec4 = torch.cat((self.prep_dec(dec4, enc4), enc4), dim=1)  # Skip connection
+        #print("dec4", dec4.shape)
+        dec3 = self.dec3(dec4)
+        #print("dec3_in", dec3.shape, "enc3_in", enc3.shape)
+        dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
+        #print("dec3", dec3.shape)
+        #return x
+        #dec3 = torch.cat((dec3, enc3), dim=1)  # Skip connection
+        dec2 = self.dec2(dec3)
+        dec2 = torch.cat((self.prep_dec(dec2, enc2), enc2), dim=1)
+        #dec2 = torch.cat((dec2, enc2), dim=1)  # Skip connection
+        dec1 = self.dec1(dec2)
+        dec1 = torch.cat((self.prep_dec(dec1, enc1), enc1), dim=1)
+        #dec1 = torch.cat((dec1, enc1), dim=1)  # Skip connection
+        dec0 = self.dec0(dec1)
+        return dec0
+
 
 if __name__ == "__main__":
     disabled_tofs_min = 1
     disabled_tofs_max = 3
-    padding = 2
+    padding = 0
 
     target_transform = Compose(
         [
@@ -563,11 +657,11 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='unet'
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref2_60_20h15_7p_general", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref2_60_20h15_7p_general_unet", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
