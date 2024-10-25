@@ -136,7 +136,7 @@ def Job(joblist):
 
     if __name__ == "__main__":
         fe = h5py.File(
-            "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
+            train_export
             + "N"
             + str(N_batch)
             + "_peaks"
@@ -157,6 +157,7 @@ if __name__ == "__main__":
     # Amount of multithreading tasks/cpus
     Number_Workers = 100
 
+    train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
     if not os.path.exists(train_export):
         os.makedirs(train_export)
 
