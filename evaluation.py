@@ -15,6 +15,8 @@ from transform import (
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
 from tqdm import trange, tqdm
+from data_generation import Job
+import numpy as np
 
 
 torch.manual_seed(42)
@@ -246,10 +248,37 @@ class Evaluator:
         plt.grid(alpha=0.8)
         cb = plt.colorbar()
         cb.ax.tick_params(labelsize=20)
-        cb.ax.set_ylabel('MSE', fontsize=20)
+        cb.ax.set_ylabel('RMSE', fontsize=20)
         plt.xlabel("TOF position", fontsize=20)
         plt.ylabel("TOF position", fontsize=20)
         plt.savefig(self.output_dir + "2_tof_failed.png")
+
+    def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
+        X, Y = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False])
+        return X, Y
+
+    def plot_spectrogram_detector_image(self, peaks=5, seed=42):
+        X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
+        X = (X - X.min()) / (X.max() - X.min())
+        Y = (Y - Y.min()) / (Y.max() - Y.min())
+        fig, ax = plt.subplots(1,2, sharey=True)
+        fontsize = 12
+        ax[0].imshow(np.array(Y), aspect=Y.shape[1] / Y.shape[0], cmap='hot', interpolation="none", origin="lower",)
+        ax[0].set_ylabel("Photon Energy [eV]", fontsize=fontsize)
+        ax[0].set_title('Spectrogram', fontsize=fontsize)
+        ax[0].set_xlabel('Time [steps]', fontsize=fontsize)
+        ax[0].tick_params(axis='both', labelsize=fontsize)
+        out = ax[1].imshow(np.array(X), aspect=X.shape[1] / X.shape[0], cmap='hot', interpolation="none", origin="lower")
+        ax[1].set_ylabel("Kinetic Energy [eV]",fontsize=fontsize)
+        ax[1].set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)],fontsize=20)
+        ax[1].set_xlabel("TOF position [#]",fontsize=fontsize)
+        ax[1].set_title('Detector image',fontsize=fontsize)
+        ax[1].tick_params(labelsize=fontsize)
+        ax[1].set_ylabel("Kinetic Energy [eV]", fontsize=fontsize)
+        plt.tight_layout()
+        out.set_clim(vmin=0, vmax=1)
+        fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
+        plt.savefig(self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png', dpi=300, bbox_inches="tight")
 
     def plot_rmse_tensor(self, rmse):
         f = plt.figure(figsize=(16, 4), constrained_layout=True)
@@ -284,7 +313,7 @@ class Evaluator:
                 ax[0, i].set_ylabel("Kinetic Energy [eV]")
             out = Evaluator.detector_image_ax(ax[0, i], data_list[i], title_list[i])
         out.set_clim(vmin=0, vmax=1)
-        fig.colorbar(out, ax=ax, shrink=0.49)
+        fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
         plt.savefig(output_dir + filename + ".png", dpi=300, bbox_inches="tight")
 
     def plot_missing_tofs_comparison(self, disabled_tofs, batch_id=1):
@@ -363,6 +392,7 @@ class Evaluator:
 
 if __name__ == "__main__":
     e: Evaluator = Evaluator(torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
+    e.plot_spectrogram_detector_image(5, 21)
     # 2. real sample
     # 2.1 real sample denoising
     e.plot_real_data(3)
