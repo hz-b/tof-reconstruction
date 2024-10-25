@@ -37,6 +37,7 @@ def Job(joblist):
     ELLIPT = joblist[4]
     ELL_TILT = joblist[5]
     PULSE = joblist[6]
+    HOT_ENABLED = joblist[8]
 
     PHASE_STEPS = 80  # 1st dimension of Y
     ENERGY_STEPS = 60  # 2nd dimension of X and Y
@@ -112,16 +113,17 @@ def Job(joblist):
             sigmay = np.random.rand() * sigmay_max
             intensity = np.random.rand()
             Y = add_gauss(Y, sigmax, sigmay, centerx, centery, intensity)
-        hot_ones=np.random.randint(0,high=15)
-        for hotty in range(hot_ones):
-            x=np.random.randint(0,high=PHASE_STEPS)
-            y=np.random.randint(0,high=ENERGY_STEPS)
-            Y[y,x]+=np.random.rand()
+        if HOT_ENABLED:
+            hot_ones=np.random.randint(0,high=15)
+            for hotty in range(hot_ones):
+                x=np.random.randint(0,high=PHASE_STEPS)
+                y=np.random.randint(0,high=ENERGY_STEPS)
+                Y[y,x]+=np.random.rand()
             
         
         basis_reconstruction = create_basis_reconstruction(kick)
         X = transform_YX(Y, basis_reconstruction)
-        return [X]
+        return [X, Y]
 
     x = []
 
@@ -132,60 +134,63 @@ def Job(joblist):
         X = np.array(trainer[0])
         x.append(X.flatten())
 
-    fe = h5py.File(
-        train_export
-        + "N"
-        + str(N_batch)
-        + "_peaks"
-        + str(PEAKS)
-        + "_seed"
-        + str(joblist[7])
-        + ".h5",
-        "w",
-    )
-
-    fe.create_dataset("x", data=np.array(x), compression="gzip")
-
-    fe.close()
-
-
-# Amount of multithreading tasks/cpus
-Number_Workers = 100
-# Export path of the data
-train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
-
-if not os.path.exists(train_export):
-    os.makedirs(train_export)
-
-Ltodo = []
-# Amount of samples per file
-N = 100000
-files_per_peak = 5
-max_peaks = 20
-init_seed = 42 + int(sys.argv[1]) * files_per_peak * max_peaks
-
-# Fixed experimental parameters
-kick_min = 0
-kick_max = 100
-ellipt = 0.73
-elltilt = (90 - 22.5) / 180 * np.pi
-pulse = 30
-
-for file_nr in range(files_per_peak):
-    for peak in range(1, max_peaks + 1):
-        Ltodo.append(
-            [
-                N,
-                kick_min,
-                kick_max,
-                peak,
-                ellipt,
-                elltilt,
-                pulse,
-                init_seed + file_nr * max_peaks + peak,
-            ]
+    if __name__ == "__main__":
+        fe = h5py.File(
+            "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
+            + "N"
+            + str(N_batch)
+            + "_peaks"
+            + str(PEAKS)
+            + "_seed"
+            + str(joblist[7])
+            + ".h5",
+            "w",
         )
 
+        fe.create_dataset("x", data=np.array(x), compression="gzip")
 
-with Pool(Number_Workers) as p:
-    p.map(Job, Ltodo)
+        fe.close()
+    else:
+        return trainer
+
+if __name__ == "__main__":
+    # Amount of multithreading tasks/cpus
+    Number_Workers = 100
+
+    if not os.path.exists(train_export):
+        os.makedirs(train_export)
+
+    Ltodo = []
+    # Amount of samples per file
+    N = 100000
+    files_per_peak = 5
+    max_peaks = 20
+    init_seed = 42 + int(sys.argv[1]) * files_per_peak * max_peaks
+    hot_enabled = True
+
+    # Fixed experimental parameters
+    kick_min = 0
+    kick_max = 100
+    ellipt = 0.73
+    elltilt = (90 - 22.5) / 180 * np.pi
+    pulse = 30
+
+    for file_nr in range(files_per_peak):
+        for peak in range(1, max_peaks + 1):
+            Ltodo.append(
+                [
+                    N,
+                    kick_min,
+                    kick_max,
+                    peak,
+                    ellipt,
+                    elltilt,
+                    pulse,
+                    init_seed + file_nr * max_peaks + peak,
+                    hot_enabled
+                ]
+            )
+
+
+    with Pool(Number_Workers) as p:
+        p.map(Job, Ltodo)
