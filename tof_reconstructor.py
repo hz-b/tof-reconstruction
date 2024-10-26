@@ -56,7 +56,7 @@ class TOFReconstructor(L.LightningModule):
         self.padding = padding
         self.tof_count = 16 + 2 * self.padding
         if architecture == "cae":
-            self.net = TOFReconstructor.create_cae()
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count)
         elif architecture == "unet":
             self.net = UNet2()
         else:
@@ -157,7 +157,7 @@ class TOFReconstructor(L.LightningModule):
         return nn.Sequential(*nn_layers)
 
     @staticmethod
-    def create_cae(hidden_dims=(32, 64, 128, 256)):
+    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256)):
         hidden_dims = list(hidden_dims)
         modules = []
         in_channels = 1
@@ -197,7 +197,7 @@ class TOFReconstructor(L.LightningModule):
             )
         #modules.append(nn.ConstantPad2d((0, 0, 0, -5), 0))
 
-                # Final adjustment layer to ensure output of shape [batch_size, 1, 60, 20]
+                # Final adjustment layer to ensure output of shape [batch_size, 1, dim_1_out, dim_2_out]
         modules.append(
             nn.Sequential(
                 nn.Conv2d(
@@ -207,7 +207,7 @@ class TOFReconstructor(L.LightningModule):
                     stride=1,
                     padding=1,
                 ),
-                nn.Upsample(size=(60, 20), mode='bilinear', align_corners=False)  # Reshape to (60, 20)
+                nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
             )
         )
 
@@ -657,11 +657,11 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='unet'
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae'
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref2_60_20h15_7p_general_unet", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref2_60_20h15_7p_general_cae", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
