@@ -249,8 +249,8 @@ class Evaluator:
         cb = plt.colorbar()
         cb.ax.tick_params(labelsize=20)
         cb.ax.set_ylabel('RMSE', fontsize=20)
-        plt.xlabel("TOF position", fontsize=20)
-        plt.ylabel("TOF position", fontsize=20)
+        plt.xlabel("TOF position [#]", fontsize=20)
+        plt.ylabel("TOF position [#]", fontsize=20)
         plt.savefig(self.output_dir + "2_tof_failed.png")
 
     def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
@@ -286,13 +286,13 @@ class Evaluator:
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
         plt.yticks(fontsize=20)
         plt.grid(alpha=0.8)
-        plt.xlabel("TOF position", fontsize=20)
+        plt.xlabel("TOF position [#]", fontsize=20)
         plt.ylabel("RMSE", fontsize=20)
         plt.savefig(self.output_dir + "1_tof_failed.png")
 
     @staticmethod
     def detector_image_ax(ax, data, title):
-        ax.set_xlabel("TOF position")
+        ax.set_xlabel("TOF position [#]")
         ax.set_title(title)
         ax.set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)])
         return ax.imshow(
@@ -392,7 +392,7 @@ class Evaluator:
 
 if __name__ == "__main__":
     e: Evaluator = Evaluator(torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-    e.plot_spectrogram_detector_image(5, 21)
+    e.plot_spectrogram_detector_image(3, 57)
     # 2. real sample
     # 2.1 real sample denoising
     e.plot_real_data(3)
