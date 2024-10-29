@@ -10,6 +10,8 @@ from torch.optim.lr_scheduler import ExponentialLR, ReduceLROnPlateau
 from lightning.pytorch.callbacks import LearningRateMonitor
 import matplotlib.pyplot as plt
 
+from ccnn import CConv2d, CConvTranspose2d
+
 plt.switch_backend("Agg")
 from torch.nn import Module
 import wandb
@@ -59,6 +61,8 @@ class TOFReconstructor(L.LightningModule):
             self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count)
         elif architecture == "unet":
             self.net = UNet2()
+        elif architecture == "ccae":
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True)
         else:
             self.net = TOFReconstructor.create_sequential(
                 self.channels * self.tof_count,
@@ -155,23 +159,32 @@ class TOFReconstructor(L.LightningModule):
             if i == len(layers) - 2 and last_activation is not None:
                 nn_layers.append(last_activation)
         return nn.Sequential(*nn_layers)
-
+    
     @staticmethod
-    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256)):
+    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256), ccnn=False):
         hidden_dims = list(hidden_dims)
         modules = []
         in_channels = 1
         for hdim in hidden_dims:
-            modules.append(
-                nn.Sequential(
-                    nn.Conv2d(
+            if ccnn:    
+                conv = CConv2d(
+                    in_channels,
+                    out_channels=hdim,
+                    kernel_size=(3,3),
+                    padding='same',
+                )
+            else:
+                conv = nn.Conv2d(
                         in_channels,
                         out_channels=hdim,
                         kernel_size=3,
                         stride=2,
                         padding=1,
                         #padding_mode='circular',
-                    ),
+                    )
+            modules.append(
+                nn.Sequential(
+                    conv,
                     nn.Mish(),
                     nn.BatchNorm2d(hdim),
                 )
@@ -181,37 +194,49 @@ class TOFReconstructor(L.LightningModule):
         # Decoder
         hidden_dims.reverse()
         hidden_dims.append(1)
+
         for i in range(len(hidden_dims) - 1):
+            if ccnn:
+                deconv = CConvTranspose2d(
+                    in_channels=hidden_dims[i],
+                    out_channels=hidden_dims[i+1],
+                    kernel_size=(3,3),
+                    padding='same',
+                )
+            else:
+                deconv = nn.ConvTranspose2d(
+                            hidden_dims[i],
+                            hidden_dims[i + 1],
+                            kernel_size=3,
+                            stride=2,
+                            padding=1,
+                            output_padding=1,
+                        )
+            dec_seq_list:list[nn.Module] = list([deconv])
+            if i != len(hidden_dims) - 2 or not ccnn:
+                dec_seq_list.append(nn.Mish())
+                dec_seq_list.append(nn.BatchNorm2d(hidden_dims[i + 1]))
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(
-                        hidden_dims[i],
-                        hidden_dims[i + 1],
-                        kernel_size=3,
-                        stride=2,
-                        padding=1,
-                        output_padding=1,
-                    ),
-                    nn.Mish(),
-                    nn.BatchNorm2d(hidden_dims[i + 1]),
+                    *dec_seq_list
                 )
             )
-        #modules.append(nn.ConstantPad2d((0, 0, 0, -5), 0))
 
                 # Final adjustment layer to ensure output of shape [batch_size, 1, dim_1_out, dim_2_out]
-        modules.append(
-            nn.Sequential(
-                nn.Conv2d(
-                    hidden_dims[-1],
-                    out_channels=1,
-                    kernel_size=3,
-                    stride=1,
-                    padding=1,
-                    #padding_mode='circular',
-                ),
-                nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
+        if not ccnn:
+            modules.append(
+                nn.Sequential(
+                    nn.Conv2d(
+                        hidden_dims[-1],
+                        out_channels=1,
+                        kernel_size=3,
+                        stride=1,
+                        padding=1,
+                        #padding_mode='circular',
+                    ),
+                    nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
+                )
             )
-        )
 
         return nn.Sequential(*modules)
 
