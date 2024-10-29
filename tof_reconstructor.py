@@ -170,6 +170,7 @@ class TOFReconstructor(L.LightningModule):
                         kernel_size=3,
                         stride=2,
                         padding=1,
+                        #padding_mode='circular',
                     ),
                     nn.Mish(),
                     nn.BatchNorm2d(hdim),
@@ -206,6 +207,7 @@ class TOFReconstructor(L.LightningModule):
                     kernel_size=3,
                     stride=1,
                     padding=1,
+                    #padding_mode='circular',
                 ),
                 nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
             )
