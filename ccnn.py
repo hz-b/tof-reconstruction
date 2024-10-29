@@ -48,7 +48,6 @@ class CConv2d(nn.Module):
             x = torch.cat([x[:, :, -pad_top:, :], x, x[:, :, :pad_bottom, :]], dim=2)
         elif self.padding != 'valid':
             raise ValueError(f"Padding '{self.padding}' is not supported.")
-        print(x)
         # Perform convolution
         x = self.conv(x)
 
