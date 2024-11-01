@@ -51,6 +51,7 @@ class TOFReconstructor(L.LightningModule):
         disabled_tofs_max=3,
         dropout_rate: float = 0.0,
         padding=0,
+        batch_size: int = 32,
         cae_hidden_dims=[32, 64, 128, 256, 512]
     ):
         super(TOFReconstructor, self).__init__()
@@ -85,6 +86,7 @@ class TOFReconstructor(L.LightningModule):
         self.disabled_tofs_min = disabled_tofs_min
         self.disabled_tofs_max = disabled_tofs_max
         self.architecture = architecture
+        self.batch_size = batch_size
 
         self.real_images = TOFReconstructor.get_real_data(
             108, 108 + 5, "datasets/210.hdf5"
@@ -689,7 +691,7 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', cae_hidden_dims=[32, 64, 128, 256, 512]
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512]
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
