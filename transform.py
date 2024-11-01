@@ -7,7 +7,91 @@ class Reshape(torch.nn.Module):
 
     def forward(self, input):
         return input.reshape(-1, 16)
+    
+class DisableNeighborTOFs(torch.nn.Module):
+    def __init__(self, min_disabled_tofs_count: int, max_disabled_tofs_count: int):
+        super().__init__()
+        self.min_disabled_tofs_count = min_disabled_tofs_count
+        self.max_disabled_tofs_count = max_disabled_tofs_count
+    
+    def forward(self, img):
+        img_copy = img.clone()
+        tof_count = img.shape[-1]
+        
+        # Determine how many TOFs to disable
+        disabled_tofs_count = torch.randint(
+            self.min_disabled_tofs_count, self.max_disabled_tofs_count + 1, (1,), device=img.device
+        )
+        
+        # Randomly pick the first TOF to disable
+        initial_disabled_tof = torch.randint(0, tof_count, (1,), device=img.device)
+        disabled_tofs = initial_disabled_tof  # Initialize as a single-element tensor
+        
+        # Available TOFs to choose from
+        tof_list = torch.randperm(tof_count, device=img.device)
+        tof_list = tof_list[tof_list != initial_disabled_tof]  # Remove the initial TOF from available ones
 
+        # Disable neighboring TOFs in a circular manner
+        for _ in range(int(disabled_tofs_count.item()) - 1):
+            permuted_disabled_tofs = disabled_tofs[torch.randperm(len(disabled_tofs), device=img.device)]
+            for current_tof in permuted_disabled_tofs:
+                new_neighbor = (current_tof + 1) % tof_count
+            
+                if (disabled_tofs == new_neighbor).sum() == 0:  # Check if new_neighbor is not in disabled_tofs
+                    disabled_tofs = torch.cat((disabled_tofs, new_neighbor.view(1)))
+                    tof_list = tof_list[tof_list != new_neighbor]
+                    break
+        
+        # Set the selected TOFs to zero in the copied image
+        img_copy[:, disabled_tofs] = 0.0
+        assert len(disabled_tofs) >=self.min_disabled_tofs_count and len(disabled_tofs) <= self.max_disabled_tofs_count
+        return img_copy
+
+class DisableOppositeTOFs(torch.nn.Module):
+    def __init__(self, min_disabled_tofs_count: int, max_disabled_tofs_count: int):
+        super().__init__()
+        self.min_disabled_tofs_count = min_disabled_tofs_count
+        self.max_disabled_tofs_count = max_disabled_tofs_count
+    
+    def forward(self, img):
+        img_copy = img.clone()
+        tof_count = img.shape[-1]
+        
+        # Determine how many TOFs to disable
+        disabled_tofs_count = torch.randint(
+            self.min_disabled_tofs_count, self.max_disabled_tofs_count + 1, (1,), device=img.device
+        )
+        
+        # Randomly pick the first TOF to disable
+        initial_disabled_tof = torch.randint(0, tof_count, (1,), device=img.device)
+        disabled_tofs = initial_disabled_tof  # Initialize as a single-element tensor
+        
+        # Available TOFs to choose from
+        tof_list = torch.randperm(tof_count, device=img.device)
+        tof_list = tof_list[tof_list != initial_disabled_tof]  # Remove the initial TOF from available ones
+
+        # Disable neighboring TOFs in a circular manner
+        for _ in range(int(disabled_tofs_count.item()) - 1):
+            permuted_disabled_tofs = disabled_tofs[torch.randperm(len(disabled_tofs), device=img.device)]
+            opposite_found = False
+            for current_tof in permuted_disabled_tofs:
+                new_opposite = (current_tof + int(tof_count / 2)) % tof_count
+            
+                if (disabled_tofs == new_opposite).sum() == 0:  # Check if new_neighbor is not in disabled_tofs
+                    disabled_tofs = torch.cat((disabled_tofs, new_opposite.view(1)))
+                    tof_list = tof_list[tof_list != new_opposite]
+                    opposite_found = True
+                    break
+            if not opposite_found:
+                new_element = tof_list[0]
+                tof_list = tof_list[tof_list != new_element]
+                disabled_tofs = torch.cat((disabled_tofs, new_element.view(1)))
+                    
+        
+        # Set the selected TOFs to zero in the copied image
+        img_copy[:, disabled_tofs] = 0.0
+        assert len(disabled_tofs) >=self.min_disabled_tofs_count and len(disabled_tofs) <= self.max_disabled_tofs_count
+        return img_copy
 
 class DisableRandomTOFs(torch.nn.Module):
     def __init__(
