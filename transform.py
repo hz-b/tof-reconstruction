@@ -112,59 +112,53 @@ class DisableRandomTOFs(torch.nn.Module):
         tof_count = img.shape[-1]
         self.disabled_tofs = []
         disabled_tofs_count = torch.randint(
-            self.min_disabled_tofs_count, self.max_disabled_tofs_count + 1, (1,)
+            self.min_disabled_tofs_count, self.max_disabled_tofs_count + 1, (1,), device=img.device
         )
-        tof_list = torch.randperm(tof_count)
-        # populate with random entry
-        disabled_tofs = [torch.randint(1, tof_count, (1,))]
-        tof_list = tof_list[tof_list != disabled_tofs[0]]
+
+        # Randomly pick the first TOF to disable
+        initial_disabled_tof = torch.randint(0, tof_count, (1,), device=img.device)
+        disabled_tofs = initial_disabled_tof  # Initialize as a single-element tensor
+        
+        # Available TOFs to choose from
+        tof_list = torch.randperm(tof_count, device=img.device)
+        tof_list = tof_list[tof_list != initial_disabled_tof]  # Remove the initial TOF from available one
+
         for i in range(disabled_tofs_count - 1):
-            random_variable = torch.rand(1)
+            random_variable = torch.rand(1, device=img.device)
+            permuted_disabled_tofs = disabled_tofs[torch.randperm(len(disabled_tofs), device=img.device)]
             if random_variable < self.neighbor_probability:
                 # neighbor or opposite
                 if random_variable < self.neighbor_probability / 2:
                     # neighbor
-                    for disabled_tof in disabled_tofs:
-                        new_neighbor = disabled_tof + 1
-                        new_neighbor_2 = disabled_tof - 1
-                        if new_neighbor in tof_list:
+                    for current_tof in permuted_disabled_tofs:
+                        new_neighbor = (current_tof + 1) % tof_count
+            
+                        if (disabled_tofs == new_neighbor).sum() == 0:  # Check if new_neighbor is not in disabled_tofs
+                            disabled_tofs = torch.cat((disabled_tofs, new_neighbor.view(1)))
                             tof_list = tof_list[tof_list != new_neighbor]
-                            disabled_tofs.append(new_neighbor)
                             break
-                        elif new_neighbor_2 in tof_list:
-                            tof_list = tof_list[tof_list != new_neighbor_2]
-                            disabled_tofs.append(new_neighbor_2)
-                            break
-                    # in case we didn't find any neighbor
-                    if len(disabled_tofs) <= i + 1:
-                        new_element = tof_list[0]
-                        tof_list = tof_list[tof_list != new_element]
-                        disabled_tofs.append(new_element)
                 else:
                     # opposite
-                    for disabled_tof in disabled_tofs:
-                        new_opposite = disabled_tof + int(tof_count / 2)
-                        new_opposite_2 = disabled_tof - int(tof_count / 2)
-                        if new_opposite in tof_list:
+                    opposite_found = False
+                    for current_tof in permuted_disabled_tofs:
+                        new_opposite = (current_tof + int(tof_count / 2)) % tof_count
+            
+                        if (disabled_tofs == new_opposite).sum() == 0:  # Check if new_neighbor is not in disabled_tofs
+                            disabled_tofs = torch.cat((disabled_tofs, new_opposite.view(1)))
                             tof_list = tof_list[tof_list != new_opposite]
-                            disabled_tofs.append(new_opposite)
+                            opposite_found = True
                             break
-                        elif new_opposite_2 in tof_list:
-                            tof_list = tof_list[tof_list != new_opposite_2]
-                            disabled_tofs.append(new_opposite_2)
-                            break
-                    # in case we didn't find any opposite
-                    if len(disabled_tofs) <= i + 1:
+                    if not opposite_found:
                         new_element = tof_list[0]
                         tof_list = tof_list[tof_list != new_element]
-                        disabled_tofs.append(new_element)
+                        disabled_tofs = torch.cat((disabled_tofs, new_element.view(1)))
             else:
                 new_element = tof_list[0]
                 tof_list = tof_list[tof_list != new_element]
-                disabled_tofs.append(new_element)
-        assert torch.hstack(disabled_tofs).shape[0] <= disabled_tofs_count
-        assert torch.unique(torch.hstack(disabled_tofs)).shape[0] == disabled_tofs_count
-        img_copy[:, torch.hstack(disabled_tofs)] = 0.0
+                disabled_tofs = torch.cat((disabled_tofs, new_element.view(1)))
+        assert disabled_tofs.shape[0] <= disabled_tofs_count
+        assert torch.unique(disabled_tofs).shape[0] == disabled_tofs_count
+        img_copy[:, disabled_tofs] = 0.0
         return img_copy
 
 
