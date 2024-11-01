@@ -50,19 +50,21 @@ class TOFReconstructor(L.LightningModule):
         disabled_tofs_min=1,
         disabled_tofs_max=3,
         dropout_rate: float = 0.0,
-        padding=0
+        padding=0,
+        cae_hidden_dims=[32, 64, 128, 256, 512]
     ):
         super(TOFReconstructor, self).__init__()
         self.save_hyperparameters(ignore=["last_activation"])
         self.channels = channels
         self.padding = padding
         self.tof_count = 16 + 2 * self.padding
+        self.cae_hidden_dims = cae_hidden_dims
         if architecture == "cae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, hidden_dims=cae_hidden_dims)
         elif architecture == "unet":
             self.net = UNet2()
         elif architecture == "ccae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True, hidden_dims=cae_hidden_dims)
         else:
             self.net = TOFReconstructor.create_sequential(
                 self.channels * self.tof_count,
@@ -161,7 +163,7 @@ class TOFReconstructor(L.LightningModule):
         return nn.Sequential(*nn_layers)
     
     @staticmethod
-    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256), ccnn=False):
+    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256, 512), ccnn=False):
         hidden_dims = list(hidden_dims)
         modules = []
         in_channels = 1
@@ -644,6 +646,7 @@ if __name__ == "__main__":
     disabled_tofs_min = 1
     disabled_tofs_max = 3
     padding = 0
+    batch_size = 1024
 
     target_transform = Compose(
         [
@@ -681,14 +684,16 @@ if __name__ == "__main__":
         dataset=dataset,
         num_workers=num_workers,
         on_gpu=torch.cuda.is_available(),
+        batch_size_train=batch_size,
+        batch_size_val=batch_size
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae'
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', cae_hidden_dims=[32, 64, 128, 256, 512]
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref2_60_20h15_7p_general_cae", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref3_general_cae", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
