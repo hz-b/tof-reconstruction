@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class CConv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid', kernel_initializer=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid'):
         super(CConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -10,7 +10,6 @@ class CConv2d(nn.Module):
         self.stride = stride
         self.padding = padding
 
-        # Initialize convolution layer with specified parameters
         self.conv = nn.Conv2d(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
@@ -18,10 +17,6 @@ class CConv2d(nn.Module):
             stride=stride,
             padding=0,  # We'll handle custom padding separately
         )
-        
-        # Initialize kernel (weight) with Xavier/Glorot if specified
-        if kernel_initializer == 'glorot_uniform':
-            nn.init.xavier_uniform_(self.conv.weight)
 
     def forward(self, x):
         # Get input dimensions
@@ -36,7 +31,6 @@ class CConv2d(nn.Module):
         pad_left = pad_along_width // 2
         pad_right = pad_along_width - pad_left
 
-        # Circular padding: left-right wrap and top-bottom wrap
         if self.padding == 'same':
             x = torch.cat([x[:, :, :, -pad_left:], x, x[:, :, :, :pad_right]], dim=3)
             x = torch.cat([x[:, :, -pad_top:, :], x, x[:, :, :pad_bottom, :]], dim=2)
@@ -48,13 +42,11 @@ class CConv2d(nn.Module):
             x = torch.cat([x[:, :, -pad_top:, :], x, x[:, :, :pad_bottom, :]], dim=2)
         elif self.padding != 'valid':
             raise ValueError(f"Padding '{self.padding}' is not supported.")
-        # Perform convolution
-        x = self.conv(x)
 
-        return x
+        return self.conv(x)
         
 class CConvTranspose2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid', kernel_initializer=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid'):
         super(CConvTranspose2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -72,18 +64,14 @@ class CConvTranspose2d(nn.Module):
             self.padding_layer = nn.CircularPad2d((self.pad_width, self.pad_width, self.pad_height, self.pad_height))
         # Initialize transposed convolution layer
         self.conv_transpose = nn.ConvTranspose2d(
-            in_channels=in_channels,  # in_channels will be set in forward based on input
+            in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride,
             padding=0,  # We'll handle padding separately
-            output_padding=0,  # To handle any size adjustments if needed
+            output_padding=0,
         )
         
-        # Initialize kernel (weight) with Xavier/Glorot if specified
-        if kernel_initializer == 'glorot_uniform':
-            nn.init.xavier_uniform_(self.conv_transpose.weight)
-
     def forward(self, inp):
         x = self.padding_layer(inp)
         x= self.conv_transpose(x)
