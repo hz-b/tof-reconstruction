@@ -619,7 +619,7 @@ if __name__ == "__main__":
     trainer = L.Trainer(
         max_epochs=50,
         logger=wandb_logger,
-        log_every_n_steps=100000,
+        log_every_n_steps=1000,
         check_val_every_n_epoch=1,
         callbacks=[lr_monitor],
     )
