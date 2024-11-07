@@ -106,7 +106,7 @@ class Evaluator:
             path_list=list(glob.iglob("datasets/shuffled_*.h5")),
             input_transform=None,
             target_transform=target_transform,
-            load_max=1000,
+            load_max=None,
         )
 
     def load_eval_model(self, model):
@@ -132,7 +132,7 @@ class Evaluator:
         return self.evaluate_transform_normalized(DisableRandomTOFs(disabled_tof_count, disabled_tof_count))
 
     def evaluate_1_3_disabled_tofs(self):
-        return self.evaluate_transform_normalized(DisableRandomTOFs(1, 3))
+        return self.evaluate_transform_normalized(DisableRandomTOFs(1, 3, neighbor_probability=1))
 
     def evaluate_specific_disabled_tofs(self, disabled_list):
         return self.evaluate_transform_normalized(DisableSpecificTOFs(disabled_list))
@@ -419,8 +419,8 @@ class Evaluator:
         )
 
     def measure_time(self, model_name):
-        data = torch.rand(1024, 60*16)
         model = self.model_dict[model_name]
+        data = torch.rand(1024, 60*16, device=model.device)
         for label, model in self.model_dict.items():
             repetitions=10
             t0 = benchmark.Timer(
@@ -466,9 +466,9 @@ if __name__ == "__main__":
     print(Evaluator.result_dict_to_latex(result_dict))
 
     # 1.3 heatmap plot rmse 1 TOF missing
-    #rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
-    #e.plot_rmse_tensor(rmse_tensor)
+    rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
+    e.plot_rmse_tensor(rmse_tensor)
 
     # 1.4 heatmap plot rmse 2 TOFs missing
-    #mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
-    #e.plot_rmse_matrix(mse_matrix, rmse_tensor)
+    mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
+    e.plot_rmse_matrix(mse_matrix, rmse_tensor)
