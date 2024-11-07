@@ -69,7 +69,7 @@ class Evaluator:
     def __init__(
         self,
         device: torch.device = torch.get_default_device(),
-        model_path: str = "outputs/tof_reconstructor/onrav0jn/checkpoints/epoch=49-step=62500000.ckpt",
+        model_path: str = "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
         one_tof_model_path: str = "outputs/tof_reconstructor/cmgsrmfi/checkpoints/epoch=49-step=62500000.ckpt",
         two_tof_model_path: str = "outputs/tof_reconstructor/13jcugos/checkpoints/epoch=49-step=62500000.ckpt",
         three_tof_model_path: str = "outputs/tof_reconstructor/adxzti5m/checkpoints/epoch=49-step=62500000.ckpt",
