@@ -15,11 +15,13 @@ from transform import (
     HotPeaks,
     PerImageNormalize,
     Reshape,
+    CircularPadding,
 )
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
 from tqdm import trange, tqdm
 from data_generation import Job
+from scipy.stats import ttest_ind
 import numpy as np
 
 
@@ -31,6 +33,7 @@ class MeanModel(torch.nn.Module):
         super().__init__()
         self.tof_count = tof_count
         self.device = device
+        self.padding = 0
 
     def forward(self, input):
         return torch.stack(
@@ -69,22 +72,19 @@ class Evaluator:
     def __init__(
         self,
         device: torch.device = torch.get_default_device(),
-        model_path: str = "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
-        one_tof_model_path: str = "outputs/tof_reconstructor/cmgsrmfi/checkpoints/epoch=49-step=62500000.ckpt",
-        two_tof_model_path: str = "outputs/tof_reconstructor/13jcugos/checkpoints/epoch=49-step=62500000.ckpt",
-        three_tof_model_path: str = "outputs/tof_reconstructor/adxzti5m/checkpoints/epoch=49-step=62500000.ckpt",
-        special_model_path: str = "outputs/tof_reconstructor/wh8p2u9b/checkpoints/epoch=49-step=62500000.ckpt",
+        model_dict: dict = {"1TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
+         "2TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
+         "3TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
+         "general model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
+         "spec model": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/epoch=49-step=2343750.ckpt"},
         output_dir: str = "outputs/",
     ):
         self.device = device
-        self.model_dict: dict[str, torch.nn.Module] = {
-            "1TOF model": self.load_eval_model(one_tof_model_path),
-            "2TOF model": self.load_eval_model(two_tof_model_path),
-            "3TOF model": self.load_eval_model(three_tof_model_path),
-            "general model": self.load_eval_model(model_path),
-            "spec model": self.load_eval_model(special_model_path),
-        }
-        self.model_dict["mean model"] = MeanModel(16, device=self.model_dict["general model"].device)
+        for key, value in model_dict.items():
+            model_dict[key] = self.load_eval_model(value)
+            
+        self.model_dict: dict = model_dict
+        self.model_dict["mean model"] = MeanModel(16, device=device)
 
         self.initial_input_transforms = [
             Reshape(),
@@ -103,7 +103,7 @@ class Evaluator:
         )
 
         self.dataset = H5Dataset(
-            path_list=list(glob.iglob("datasets/shuffled_*.h5")),
+            path_list=list(glob.iglob("datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5")),
             input_transform=None,
             target_transform=target_transform,
             load_max=None,
@@ -116,17 +116,19 @@ class Evaluator:
         return model
     
     def evaluate_transform_normalized(self, transform):
-        input_transform = Compose(
-            self.initial_input_transforms
-            + [
-                transform,
-                PerImageNormalize(),
-            ]
-        )
-        return {
-            label: self.evaluate_rmse(model, input_transform)
-            for label, model in self.model_dict.items()
-        }
+        output_dict = {}
+        for label, model in self.model_dict.items():
+            input_transform = Compose(
+                        self.initial_input_transforms
+                        + [
+                            transform,
+                            PerImageNormalize(),
+                            CircularPadding(model.padding),
+                        ]
+                    )
+            output_dict[label] = self.evaluate_rmse(model, input_transform)
+        
+        return output_dict
 
     def evaluate_n_disabled_tofs(self, disabled_tof_count=3):
         return self.evaluate_transform_normalized(DisableRandomTOFs(disabled_tof_count, disabled_tof_count))
@@ -144,27 +146,13 @@ class Evaluator:
         return self.evaluate_transform_normalized(DisableOppositeTOFs(min_disabled_count, max_disabled_count))
     
     @staticmethod
-    def significant_confidence_levels(group1, group2, confidence=0.95):
-        mean1, mean2 = torch.mean(group1), torch.mean(group2)
-        std1, std2 = torch.std(group1, unbiased=True), torch.std(group2, unbiased=True)
-        n1, n2 = group1.size(0), group2.size(0)
-
-        z_score = stats.norm.ppf(1 - (1 - confidence) / 2)
-
-        # Calculate CI for each group
-        ci1 = (mean1 - z_score * (std1 / torch.sqrt(torch.tensor(n1, dtype=torch.float))),
-               mean1 + z_score * (std1 / torch.sqrt(torch.tensor(n1, dtype=torch.float))))
-        ci2 = (mean2 - z_score * (std2 / torch.sqrt(torch.tensor(n2, dtype=torch.float))),
-               mean2 + z_score * (std2 / torch.sqrt(torch.tensor(n2, dtype=torch.float))))
-        
-        # Calculate CI for the difference in means
-        diff_mean = mean2 - mean1
-        std_diff = torch.sqrt((std1**2 / n1) + (std2**2 / n2))
-        ci_diff = (diff_mean - z_score * std_diff, diff_mean + z_score * std_diff)
-        return not (ci_diff[0] < 0. and ci_diff[1] > 0.)
+    def significant_confidence_levels(group_A, group_B, confidence=0.99):
+        ci = ttest_ind(group_A.flatten().cpu(), group_B.flatten().cpu(), equal_var=False).confidence_interval(confidence_level=confidence)
+        confidence_interval = (ci.low.item(), ci.high.item())
+        return not (confidence_interval[0] < 0. and confidence_interval[1] > 0.), confidence_interval
 
     @staticmethod
-    def result_dict_to_latex(result_dict):
+    def result_dict_to_latex(result_dict, statistics_table=True):
         if len(result_dict) < 4:
             alignment = "c" * len(result_dict)
             table_environment = "tabular"
@@ -176,10 +164,13 @@ class Evaluator:
             text_width =  r"""{\textwidth}"""
         else:
             text_width = ""
-
+        if statistics_table:
+            first_column_width = "1.5cm"
+        else:
+            first_column_width = "2.5cm"
         output_string = (
             r"""
-        \begin{"""+table_environment+r"""}"""+text_width+r"""{p{2.5cm}|"""+
+        \begin{"""+table_environment+r"""}"""+text_width+r"""{p{"""+first_column_width+"""}|"""+
         alignment    
             + r"""}
         \hline"""
@@ -199,17 +190,26 @@ class Evaluator:
             model_row = [model_key]
             for scenario_value in result_dict.values():
                 best_key = min(scenario_value, key=scenario_value.get)
-                model_row_element = f"{scenario_value[model_key][0]:.{4}f}"
-                if best_key == model_key:
-                    model_row_element = r"\mathbf{" + model_row_element + r"}"
+                std_dev = scenario_value[best_key][1].std()
+                if statistics_table:
+                    model_row_element = f"{scenario_value[model_key][0]:.2e}".replace("e+0", "e+").replace("e-0", "e-")+f" $\\pm${std_dev:.2e}".replace("e+0", "e+").replace("e-0", "e-")
                 else:
-                    if Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1]):
-                        model_row_element += " \\dagger"
-                model_row += ["$"+model_row_element+"$"]
+                    model_row_element = f"{scenario_value[model_key][0]:.2e}".replace("e+0", "e+").replace("e-0", "e-")
+                if best_key == model_key:
+                    model_row_element = r"\textbf{" + model_row_element + r"}"
+                else:
+                    if statistics_table:
+                        p_value = Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1])[1]
+                        model_row_element += f" ({p_value[0]:.2e}, {p_value[1]:.2e})".replace("e+0", "e+").replace("e-0", "e-")
+                    if Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1])[0] and not statistics_table:
+                        model_row_element += " $\\dagger$"
+                model_row += [model_row_element]
             output_string += " & ".join(model_row) + r" \\" + "\n"
-
-        output_string += r"""\hline
-        \end{"""+table_environment+r"""}"""
+            if statistics_table:
+                output_string += r"""\hline""" + "\n"
+        if not statistics_table:
+            output_string += r"""\hline""" + "\n"
+        output_string += r"""\end{"""+table_environment+r"""}"""
         return output_string
 
     def test_with_input_transform(self, input_transform):
@@ -221,18 +221,33 @@ class Evaluator:
         test_dataloader = datamodule.test_dataloader()
         return test_dataloader
 
-    def evaluate_missing_tofs(self, missing_tofs, model):
-        return self.evaluate_rmse(model, DisableSpecificTOFs(missing_tofs))
+    def evaluate_missing_tofs(self, disabled_tofs, model):
+        input_transform = Compose(
+            self.initial_input_transforms
+            + [
+                DisableSpecificTOFs(disabled_tofs=disabled_tofs),
+                PerImageNormalize(),
+                CircularPadding(model.padding),
+            ]
+        )
+        mean, _ = self.evaluate_rmse(model, input_transform)
+        return mean
 
     def evaluate_rmse(self, model, input_transform):
         with torch.no_grad():
             test_dataloader = self.test_with_input_transform(input_transform)
             test_loss_list = []
             for x, y in tqdm(test_dataloader, leave=False):
+                channels = x.shape[-2]
+                tof_count = x.shape[-1] - 2 * model.padding
                 x = x.flatten(start_dim=1)
                 y = y.flatten(start_dim=1).to(model.device)
                 y_hat = model(x.to(model.device))
-                test_loss = torch.sqrt(torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
+                y_hat = y_hat.reshape(-1, tof_count + 2*model.padding, channels)
+                if model.padding != 0:
+                    y_hat = y_hat[:, model.padding:-model.padding, :]
+                y_hat = y_hat.flatten(start_dim=1)
+                test_loss = (torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
                 test_loss_list.append(test_loss)
             test_loss_tensor = torch.stack(test_loss_list)
             return test_loss_tensor.mean(), test_loss_tensor.flatten()
@@ -248,7 +263,7 @@ class Evaluator:
                     else:
                         evaluation_list.append((i,j))
             for i, j in tqdm(evaluation_list):
-                output_matrix[i][j], _ = self.evaluate_missing_tofs(
+                output_matrix[i][j] = self.evaluate_missing_tofs(
                         [i, j], model
                     )
             return output_matrix
@@ -276,7 +291,9 @@ class Evaluator:
         plt.savefig(self.output_dir + "2_tof_failed.png")
 
     def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
-        X, Y = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False])
+        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False])
+        assert output is not None
+        X, Y = output
         return X, Y
 
     def plot_spectrogram_detector_image(self, peaks=5, seed=42):
@@ -332,16 +349,25 @@ class Evaluator:
 
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir):
+        if len(data_list) > 3:
+            rows = len(data_list) // 2 + len(data_list) % 2
+            columns = 2
+        else:
+            rows = 1
+            columns = len(data_list)
         fig, ax = plt.subplots(
-            1, len(data_list), sharex=True, sharey=True, squeeze=False
+            rows, columns, sharex=True, sharey=True, squeeze=False
         )
         for i in range(len(data_list)):
-            if i == 0:
-                ax[0, i].set_ylabel("Kinetic Energy [eV]")
-            ax[0, i].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[0, i], data_list[i], title_list[i])
-            ax[0, i].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+            cur_row = i // columns
+            cur_col = i % columns
+            if cur_col == 0:
+                ax[cur_row, cur_col].set_ylabel("Kinetic Energy [eV]")
+            ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i])
+            ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
         out.set_clim(vmin=0, vmax=1)
+        plt.tight_layout()
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
         plt.savefig(output_dir + filename + ".png", dpi=300, bbox_inches="tight")
 
@@ -368,15 +394,17 @@ class Evaluator:
                     break
 
     def plot_reconstructing_tofs_comparison(
-        self, disabled_tofs, model_label, batch_id=1
+        self, disabled_tofs, model_label, batch_id=1, sample_id=0
     ):
         input_transform = Compose(
             self.initial_input_transforms
             + [
                 DisableSpecificTOFs(disabled_tofs=disabled_tofs),
                 PerImageNormalize(),
+                CircularPadding(self.model_dict[model_label].padding),
             ]
         )
+        padding = self.model_dict[model_label].padding
         test_dataloader = self.test_with_input_transform(input_transform)
         with torch.no_grad():
             i = 0
@@ -384,53 +412,70 @@ class Evaluator:
                 i += 1
                 if i == batch_id:
                     z = (
-                        self.evaluate_spec(x[0].unsqueeze(0).flatten(start_dim=1).to(self.device))[0]
-                        .reshape(-1, 16)
+                        self.evaluate_model(x[sample_id].unsqueeze(0).flatten(start_dim=1).to(self.device), model_label)[0]
+                        .reshape(-1, 16 + 2*padding)
                         .unsqueeze(0)
                     )
+                    if padding != 0:
+                        z = z[:,:,padding:-padding]
                     Evaluator.plot_detector_image_comparison(
-                        [x[0].cpu(), y[0].cpu(), z[0].cpu()],
+                        [x[sample_id].cpu(), y[sample_id].cpu(), z[0].cpu()],
                         ["With noise", "Label", "Reconstructed"],
                         "two_tofs_disabled",
                         self.output_dir,
                     )
                     break
 
-    def evaluate_spec(self, data):
-        assert self.model_dict["spec model"] is not None
+    def evaluate_model(self, data, model_label):
+        assert self.model_dict[model_label] is not None
         with torch.no_grad():
-            return self.model_dict["spec model"](data)
+            return self.model_dict[model_label](data)
 
-    def plot_real_data(self, sample_id, input_transform=None, add_to_label="", evaluated_plot_title=""):
+    def plot_real_data(self, sample_id, model_label_list, evaluated_plot_title_list, input_transform=None, add_to_label=""):
         real_images = TOFReconstructor.get_real_data(
             sample_id, sample_id + 1, "datasets/210.hdf5"
         )
-        real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
-            real_images.to(self.device), self.evaluate_spec, input_transform
-        )
+        evaluated_images_list = []
+        for model_label in model_label_list:
+            padding = self.model_dict[model_label].padding
+            circular_transform = CircularPadding(padding)
+            if input_transform is not None:
+                input_transform = Compose([input_transform, circular_transform])
+            else:
+                input_transform = circular_transform
+            eval_func = lambda data: self.evaluate_model(data, model_label)
+            real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
+                real_images.to(self.device), eval_func, input_transform
+            )
+            real_image = real_images[0].cpu()
+            eval_real_image = evaluated_real_data[0].cpu()
+            if padding != 0:
+                real_image = real_image[:,padding:-padding]
+                eval_real_image = eval_real_image[:,padding:-padding]
+            evaluated_images_list.append(eval_real_image)
         if add_to_label != "":
             add_to_label = "_" + add_to_label
         add_to_label = str(sample_id) + add_to_label
         Evaluator.plot_detector_image_comparison(
-            [real_images[0].cpu(), evaluated_real_data[0].cpu()],
-            ["Real data", evaluated_plot_title],
+            [real_image]+evaluated_images_list,
+            ["Real data"]+evaluated_plot_title_list,
             "_".join(["real_image", add_to_label]),
             self.output_dir,
         )
 
     def measure_time(self, model_name):
         model = self.model_dict[model_name]
-        data = torch.rand(1024, 60*16, device=model.device)
-        for label, model in self.model_dict.items():
-            repetitions=10
-            t0 = benchmark.Timer(
-                stmt='eval_model(model, data)',
-                setup='from __main__ import eval_model',
-                globals={'model': model, 'data': data},
-                num_threads=1,
-                label=label,
-                sub_label='1024 random data points')
-            print(t0.timeit(repetitions))
+
+        data = torch.rand(1024, 60*(16+2*model.padding), device=model.device)
+        repetitions=10
+        t0 = benchmark.Timer(
+            stmt='eval_model(model, data)',
+            setup='from __main__ import eval_model',
+            globals={'model': model, 'data': data},
+            num_threads=1,
+            label=model_name,
+            sub_label='1024 random data points')
+        print(t0.timeit(repetitions))
        
 
 def eval_model(model, data):
@@ -443,27 +488,28 @@ if __name__ == "__main__":
     e.plot_spectrogram_detector_image(3, 57)
     # 2. real sample
     # 2.1 real sample denoising
-    e.plot_real_data(3, evaluated_plot_title="Denoised")
+    e.plot_real_data(3, ["spec model"], evaluated_plot_title_list=["Denoised"])
     # 2.2 real sample disabled + denoising
     e.plot_real_data(
-        3, input_transform=DisableSpecificTOFs([7, 15]), add_to_label="disabled_2_tofs", evaluated_plot_title="Reconstructed"
-    )
+        3, ["spec model"], input_transform=DisableSpecificTOFs([3, 4]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= ["Reconstructed"])
     # 1.1 graphic noisy+disabled vs. clear
-    e.plot_missing_tofs_comparison([5, 13])
+    #e.plot_missing_tofs_comparison([5, 13])
 
     # 1.1.2 plot
     e.plot_reconstructing_tofs_comparison([7, 15], "spec model")
 
     result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1)}
-    print(Evaluator.result_dict_to_latex(result_dict))
-          
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+
     # 1.2 table RMSEs of specific models vs. general model vs. 'meaner'
     result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
     result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-    result_dict["1--3 neighbors"] = e.evaluate_neigbors(1, 3)
-    result_dict["1--3 opposite"] = e.evaluate_opposite(1, 3)
+    result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
+    result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
     result_dict["\\#8,\\#16 position"] = e.evaluate_specific_disabled_tofs([7,15])
-    print(Evaluator.result_dict_to_latex(result_dict))
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
     # 1.3 heatmap plot rmse 1 TOF missing
     rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
