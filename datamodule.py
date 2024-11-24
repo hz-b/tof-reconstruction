@@ -67,8 +67,10 @@ class DefaultDataModule(L.LightningDataModule):
             pin_memory=self.pin_memory,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self, max_len=None):
         assert self.test_dataset is not None
+        if max_len is not None:
+            self.test_dataset = torch.utils.data.Subset(self.test_dataset, range(min(len(self.test_dataset), max_len)))
         return DataLoader(
             self.test_dataset,
             shuffle=False,
