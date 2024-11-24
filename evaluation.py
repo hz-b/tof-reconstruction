@@ -231,7 +231,7 @@ class Evaluator:
         self.dataset.input_transform = input_transform
         datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=8192, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
-        test_dataloader = datamodule.test_dataloader(max_len=1000000)
+        test_dataloader = datamodule.test_dataloader(max_len=100000)
         return test_dataloader
 
     def evaluate_missing_tofs(self, disabled_tofs, model):
