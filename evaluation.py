@@ -2,6 +2,7 @@ import glob
 import psutil
 from scipy import stats
 import os
+import sys
 import torch
 from torch.utils import benchmark
 from datamodule import DefaultDataModule
@@ -20,7 +21,7 @@ from transform import (
 )
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
-from tqdm import trange, tqdm
+from tqdm.auto import trange, tqdm
 from data_generation import Job
 from scipy.stats import ttest_ind
 import numpy as np
@@ -72,12 +73,8 @@ class MeanModel(torch.nn.Module):
 class Evaluator:
     def __init__(
         self,
+        model_dict: dict,
         device: torch.device = torch.get_default_device(),
-        model_dict: dict = {"1TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-         "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-         "3TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-         "general model": "outputs/tof_reconstructor/szero50e/checkpoints",
-         "spec model": "outputs/tof_reconstructor/szero50e/checkpoints"},
         output_dir: str = "outputs/",
     ):
         self.device = device
@@ -234,7 +231,7 @@ class Evaluator:
         self.dataset.input_transform = input_transform
         datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=8192, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
-        test_dataloader = datamodule.test_dataloader()
+        test_dataloader = datamodule.test_dataloader(max_len=1000000)
         return test_dataloader
 
     def evaluate_missing_tofs(self, disabled_tofs, model):
@@ -503,57 +500,70 @@ def eval_model(model, data):
         return model(data)
 
 if __name__ == "__main__":
-    e: Evaluator = Evaluator(torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-    e.measure_time("general model") 
-    e.plot_spectrogram_detector_image(3, 57)
-    # 2. real sample
-    # 2.1 real sample denoising
-    e.plot_real_data(3, ["spec model"], evaluated_plot_title_list=["Denoised"])
-    # 2.2 real sample disabled + denoising
-    e.plot_real_data(
-        3, ["spec model"], input_transform=DisableSpecificTOFs([3, 4]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= ["Reconstructed"])
-    # 1.1 graphic noisy+disabled vs. clear
-    e.plot_missing_tofs_comparison([7, 12])
+    if len(sys.argv) > 1:
+        test_case = int(sys.argv[1])
+    else:
+        test_case = 0
 
-    # 1.1.2 plot
-    e.plot_reconstructing_tofs_comparison([7, 12], "spec model")
-
-    result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1)}
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
-
-    # 1.2 table RMSEs of specific models vs. general model vs. 'meaner'
-    result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
-    result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-    result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
-    result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-    result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
-
-    # 1.3 heatmap plot rmse 1 TOF missing
-    rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
-    e.plot_rmse_tensor([rmse_tensor])
-
-    # 1.4 heatmap plot rmse 2 TOFs missing
-    mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
-    e.plot_rmse_matrix(mse_matrix, rmse_tensor)
+    if test_case == 0:
+        model_dict = {"1TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "3TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "general model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "spec model": "outputs/tof_reconstructor/szero50e/checkpoints"}
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
+        e.measure_time("general model") 
+        e.plot_spectrogram_detector_image(3, 57)
+        # 2. real sample
+        # 2.1 real sample denoising
+        e.plot_real_data(3, ["spec model"], evaluated_plot_title_list=["Denoised"])
+        # 2.2 real sample disabled + denoising
+        e.plot_real_data(
+            3, ["spec model"], input_transform=DisableSpecificTOFs([3, 4]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= ["Reconstructed"])
+        # 1.1 graphic noisy+disabled vs. clear
+        e.plot_missing_tofs_comparison([7, 12])
     
+        # 1.1.2 plot
+        e.plot_reconstructing_tofs_comparison([7, 12], "spec model")
     
-    # Appendix
-    model_dict = {"$\\gamma=0.3$ general": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
-         "$\\gamma=0.7$ general": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
-         "padding=0 general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
-         "padding=2 general": "outputs/tof_reconstructor/748p94if/checkpoints/",
-         "reference": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
-         #"1-4TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
-         #"1-5TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",      
-         },
-    e: Evaluator = Evaluator(torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-    result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
-    result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-    result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
-    result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-    result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1)}
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+    
+        # 1.2 table RMSEs of specific models vs. general model vs. 'meaner'
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
+        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+    
+        # 1.3 heatmap plot rmse 1 TOF missing
+        rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
+        e.plot_rmse_tensor([rmse_tensor])
+    
+        # 1.4 heatmap plot rmse 2 TOFs missing
+        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
+        e.plot_rmse_matrix(mse_matrix, rmse_tensor)
+    
+    elif test_case == 1:
+        # Appendix
+        model_dict = {"$\\gamma=0.3$ general": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
+             "$\\gamma=0.7$ general": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
+             "padding=0 general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+             "padding=2 general": "outputs/tof_reconstructor/748p94if/checkpoints/",
+             "reference": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+             #"1-4TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
+             #"1-5TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",      
+             }
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
+        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+    else:
+        print("Test case not found")
