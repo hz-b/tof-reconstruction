@@ -1,6 +1,7 @@
 import glob
 import psutil
 from scipy import stats
+import os
 import torch
 from torch.utils import benchmark
 from datamodule import DefaultDataModule
@@ -72,16 +73,16 @@ class Evaluator:
     def __init__(
         self,
         device: torch.device = torch.get_default_device(),
-        model_dict: dict = {"1TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
-         "2TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
-         "3TOF model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
-         "general model": "outputs/tof_reconstructor/xxwm25nj/checkpoints/epoch=49-step=2343750.ckpt",
-         "spec model": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/epoch=49-step=2343750.ckpt"},
+        model_dict: dict = {"1TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+         "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+         "3TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+         "general model": "outputs/tof_reconstructor/szero50e/checkpoints",
+         "spec model": "outputs/tof_reconstructor/szero50e/checkpoints"},
         output_dir: str = "outputs/",
     ):
         self.device = device
         for key, value in model_dict.items():
-            model_dict[key] = self.load_eval_model(value)
+            model_dict[key] = self.load_eval_model(Evaluator.load_first_ckpt_file(value))
             
         self.model_dict: dict = model_dict
         self.model_dict["mean model"] = MeanModel(16, device=device)
@@ -108,6 +109,21 @@ class Evaluator:
             target_transform=target_transform,
             load_max=None,
         )
+    @staticmethod
+    def load_first_ckpt_file(folder_path):
+        # List all files in the folder
+        files = os.listdir(folder_path)
+        # Filter files that end with '.ckpt'
+        ckpt_files = [file for file in files if file.endswith('.ckpt')]
+        if len(ckpt_files) > 1:
+            raise FileNotFoundError("Multiple .ckpt files, cannot decide.")
+        # Sort the files alphabetically (optional, to ensure consistent order)
+        ckpt_files.sort()
+        # Return the first file if available
+        if ckpt_files:
+            return os.path.join(folder_path, ckpt_files[0])
+        else:
+            raise FileNotFoundError("No .ckpt files found in the specified folder.")
 
     def load_eval_model(self, model):
         model = TOFReconstructor.load_from_checkpoint(model, channels=60)
@@ -190,7 +206,7 @@ class Evaluator:
             model_row = [model_key]
             for scenario_value in result_dict.values():
                 best_key = min(scenario_value, key=scenario_value.get)
-                std_dev = scenario_value[best_key][1].std()
+                std_dev = scenario_value[model_key][1].std()
                 if statistics_table:
                     model_row_element = f"{scenario_value[model_key][0]:.2e}".replace("e+0", "e+").replace("e-0", "e-")+f" $\\pm${std_dev:.2e}".replace("e+0", "e+").replace("e-0", "e-")
                 else:
@@ -243,13 +259,13 @@ class Evaluator:
                 x = x.flatten(start_dim=1)
                 y = y.flatten(start_dim=1).to(model.device)
                 y_hat = model(x.to(model.device))
-                y_hat = y_hat.reshape(-1, tof_count + 2*model.padding, channels)
+                y_hat = y_hat.reshape(-1, channels, tof_count + 2*model.padding)
                 if model.padding != 0:
-                    y_hat = y_hat[:, model.padding:-model.padding, :]
+                    y_hat = y_hat[:, :, model.padding:-model.padding]
                 y_hat = y_hat.flatten(start_dim=1)
                 test_loss = (torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
                 test_loss_list.append(test_loss)
-            test_loss_tensor = torch.stack(test_loss_list)
+            test_loss_tensor = torch.cat(test_loss_list)
             return test_loss_tensor.mean(), test_loss_tensor.flatten()
 
     def two_missing_tofs_rmse_matrix(self, model):
@@ -323,10 +339,14 @@ class Evaluator:
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
         plt.savefig(self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png', dpi=300, bbox_inches="tight")
 
-    def plot_rmse_tensor(self, rmse):
+    def plot_rmse_tensor(self, rmse_list, labels=None):
         f = plt.figure(figsize=(16, 4), constrained_layout=True)
-        plt.plot(rmse.cpu())
+        for i,entry in enumerate(rmse_list):
+            label = labels[i] if labels is not None else None
+            plt.plot(entry.cpu(), label=label)
+        plt.legend()
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
+        plt.yscale('log')
         plt.yticks(fontsize=20)
         plt.grid(alpha=0.8)
         plt.xlabel("TOF position [#]", fontsize=20)
@@ -432,20 +452,20 @@ class Evaluator:
             return self.model_dict[model_label](data)
 
     def plot_real_data(self, sample_id, model_label_list, evaluated_plot_title_list, input_transform=None, add_to_label=""):
-        real_images = TOFReconstructor.get_real_data(
-            sample_id, sample_id + 1, "datasets/210.hdf5"
-        )
         evaluated_images_list = []
         for model_label in model_label_list:
+            real_images = TOFReconstructor.get_real_data(
+                sample_id, sample_id + 1, "datasets/210.hdf5"
+            )
             padding = self.model_dict[model_label].padding
             circular_transform = CircularPadding(padding)
             if input_transform is not None:
-                input_transform = Compose([input_transform, circular_transform])
+                composed_transform = Compose([input_transform, circular_transform])
             else:
-                input_transform = circular_transform
+                composed_transform = circular_transform
             eval_func = lambda data: self.evaluate_model(data, model_label)
             real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
-                real_images.to(self.device), eval_func, input_transform
+                real_images.to(self.device), eval_func, composed_transform
             )
             real_image = real_images[0].cpu()
             eval_real_image = evaluated_real_data[0].cpu()
@@ -493,10 +513,10 @@ if __name__ == "__main__":
     e.plot_real_data(
         3, ["spec model"], input_transform=DisableSpecificTOFs([3, 4]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= ["Reconstructed"])
     # 1.1 graphic noisy+disabled vs. clear
-    #e.plot_missing_tofs_comparison([5, 13])
+    e.plot_missing_tofs_comparison([7, 12])
 
     # 1.1.2 plot
-    e.plot_reconstructing_tofs_comparison([7, 15], "spec model")
+    e.plot_reconstructing_tofs_comparison([7, 12], "spec model")
 
     result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1)}
     print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
@@ -507,14 +527,33 @@ if __name__ == "__main__":
     result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
     result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
     result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-    result_dict["\\#8,\\#16 position"] = e.evaluate_specific_disabled_tofs([7,15])
+    result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
     print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
     print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
     # 1.3 heatmap plot rmse 1 TOF missing
     rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
-    e.plot_rmse_tensor(rmse_tensor)
+    e.plot_rmse_tensor([rmse_tensor])
 
     # 1.4 heatmap plot rmse 2 TOFs missing
     mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
     e.plot_rmse_matrix(mse_matrix, rmse_tensor)
+    
+    
+    # Appendix
+    model_dict = {"$\\gamma=0.3$ general": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
+         "$\\gamma=0.7$ general": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
+         "padding=0 general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+         "padding=2 general": "outputs/tof_reconstructor/748p94if/checkpoints/",
+         "reference": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+         #"1-4TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
+         #"1-5TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",      
+         },
+    e: Evaluator = Evaluator(torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
+    result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
+    result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
+    result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
+    result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
+    result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+    print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
