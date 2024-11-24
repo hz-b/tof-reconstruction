@@ -565,5 +565,24 @@ if __name__ == "__main__":
         result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+
+elif test_case == 2:
+        # Architecture comparison
+        model_dict = {
+             "CAE-32": "outputs/tof_reconstructor/wzhx8vig/checkpoints/",
+             "CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+             "CAE-128": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
+             "CAE-256": "outputs/tof_reconstructor/b1cl83sg/checkpoints/",
+             "CAE-512": "outputs/tof_reconstructor/xxwm25nj/checkpoints/",
+             "CAE-1024": "outputs/tof_reconstructor/67476x40/checkpoints/",   
+             }
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
+        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     else:
         print("Test case not found")
