@@ -566,7 +566,7 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
-elif test_case == 2:
+    elif test_case == 2:
         # Architecture comparison
         model_dict = {
              "CAE-32": "outputs/tof_reconstructor/wzhx8vig/checkpoints/",
