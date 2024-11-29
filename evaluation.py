@@ -4,6 +4,7 @@ from scipy import stats
 import os
 import sys
 import torch
+import subprocess
 from torch.utils import benchmark
 from datamodule import DefaultDataModule
 from dataset import H5Dataset
@@ -21,10 +22,11 @@ from transform import (
 )
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
-from tqdm.auto import trange, tqdm
+from tqdm import trange, tqdm
 from data_generation import Job
-from scipy.stats import ttest_ind
+from scipy.stats import ttest_rel
 import numpy as np
+import pickle
 
 
 torch.manual_seed(42)
@@ -82,7 +84,7 @@ class Evaluator:
             model_dict[key] = self.load_eval_model(Evaluator.load_first_ckpt_file(value))
             
         self.model_dict: dict = model_dict
-        self.model_dict["mean model"] = MeanModel(16, device=device)
+        self.model_dict["Mean model"] = MeanModel(16, device=device)
 
         self.initial_input_transforms = [
             Reshape(),
@@ -128,9 +130,10 @@ class Evaluator:
         model.to(self.device)
         return model
     
-    def evaluate_transform_normalized(self, transform):
+    def evaluate_transform_normalized(self, model_keys, transform):
         output_dict = {}
-        for label, model in self.model_dict.items():
+        for key in model_keys:
+            model = self.model_dict[key]
             input_transform = Compose(
                         self.initial_input_transforms
                         + [
@@ -139,28 +142,28 @@ class Evaluator:
                             CircularPadding(model.padding),
                         ]
                     )
-            output_dict[label] = self.evaluate_rmse(model, input_transform)
+            output_dict[key] = self.evaluate_rmse(model, input_transform)
         
         return output_dict
 
-    def evaluate_n_disabled_tofs(self, disabled_tof_count=3):
-        return self.evaluate_transform_normalized(DisableRandomTOFs(disabled_tof_count, disabled_tof_count))
+    def evaluate_n_disabled_tofs(self, model_keys, disabled_tof_count=3):
+        return self.evaluate_transform_normalized(model_keys, DisableRandomTOFs(disabled_tof_count, disabled_tof_count))
 
-    def evaluate_1_3_disabled_tofs(self):
-        return self.evaluate_transform_normalized(DisableRandomTOFs(1, 3, neighbor_probability=1))
+    def evaluate_1_n_disabled_tofs(self, model_keys, n=3):
+        return self.evaluate_transform_normalized(model_keys, DisableRandomTOFs(1, n, neighbor_probability=1))
 
-    def evaluate_specific_disabled_tofs(self, disabled_list):
-        return self.evaluate_transform_normalized(DisableSpecificTOFs(disabled_list))
+    def evaluate_specific_disabled_tofs(self, model_keys, disabled_list):
+        return self.evaluate_transform_normalized(model_keys, DisableSpecificTOFs(disabled_list))
 
-    def evaluate_neigbors(self, min_disabled_count, max_disabled_count):
-        return self.evaluate_transform_normalized(DisableNeighborTOFs(min_disabled_count, max_disabled_count))
+    def evaluate_neigbors(self, model_keys, min_disabled_count, max_disabled_count):
+        return self.evaluate_transform_normalized(model_keys, DisableNeighborTOFs(min_disabled_count, max_disabled_count))
     
-    def evaluate_opposite(self, min_disabled_count, max_disabled_count):
-        return self.evaluate_transform_normalized(DisableOppositeTOFs(min_disabled_count, max_disabled_count))
+    def evaluate_opposite(self, model_keys, min_disabled_count, max_disabled_count):
+        return self.evaluate_transform_normalized(model_keys, DisableOppositeTOFs(min_disabled_count, max_disabled_count))
     
     @staticmethod
     def significant_confidence_levels(group_A, group_B, confidence=0.99):
-        ci = ttest_ind(group_A.flatten().cpu(), group_B.flatten().cpu(), equal_var=False).confidence_interval(confidence_level=confidence)
+        ci = ttest_rel(group_A.flatten().cpu(), group_B.flatten().cpu()).confidence_interval(confidence_level=confidence)
         confidence_interval = (ci.low.item(), ci.high.item())
         return not (confidence_interval[0] < 0. and confidence_interval[1] > 0.), confidence_interval
 
@@ -291,13 +294,13 @@ class Evaluator:
             return torch.tensor(outputs, device=self.device)
 
     def plot_rmse_matrix(self, matrix, diag):
-        f = plt.figure(figsize=(19, 15), constrained_layout=True)
+        f = plt.figure(figsize=(8, 6), constrained_layout=True)
         plt.matshow((matrix+matrix.T+torch.diag(diag)).cpu(), fignum=plt.get_fignums()[-1], cmap="hot", aspect="auto")
-        plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
-        plt.yticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
-        plt.grid(alpha=0.8)
+        plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=15)
+        plt.yticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=15)
+        plt.grid(alpha=0.7)
         cb = plt.colorbar()
-        cb.ax.tick_params(labelsize=20)
+        cb.ax.tick_params(labelsize=15)
         cb.ax.set_ylabel('RMSE', fontsize=20)
         plt.xlabel("TOF position [#]", fontsize=20)
         plt.ylabel("TOF position [#]", fontsize=20)
@@ -341,7 +344,8 @@ class Evaluator:
         for i,entry in enumerate(rmse_list):
             label = labels[i] if labels is not None else None
             plt.plot(entry.cpu(), label=label)
-        plt.legend()
+        if labels is not None:
+            plt.legend()
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
         plt.yscale('log')
         plt.yticks(fontsize=20)
@@ -367,13 +371,13 @@ class Evaluator:
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir):
         if len(data_list) > 3:
-            rows = len(data_list) // 2 + len(data_list) % 2
-            columns = 2
+            rows = len(data_list) // 3 + (len(data_list) % 3 != 0)
+            columns = 3
         else:
             rows = 1
             columns = len(data_list)
         fig, ax = plt.subplots(
-            rows, columns, sharex=True, sharey=True, squeeze=False
+            rows, columns, sharex=True, sharey=True, squeeze=False, figsize=(8, 3+rows*1)# (5+1, rows*(1.7+0.3)) #(8, 6)
         )
         for i in range(len(data_list)):
             cur_row = i // columns
@@ -383,6 +387,10 @@ class Evaluator:
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
             out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i])
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+        for i in range(len(data_list), rows*columns):
+            cur_row = i // columns
+            cur_col = i % columns
+            ax[cur_row, cur_col].set_visible(False)
         out.set_clim(vmin=0, vmax=1)
         plt.tight_layout()
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
@@ -425,7 +433,7 @@ class Evaluator:
         test_dataloader = self.test_with_input_transform(input_transform)
         with torch.no_grad():
             i = 0
-            for x, y in tqdm(test_dataloader):
+            for x, y in test_dataloader:
                 i += 1
                 if i == batch_id:
                     z = (
@@ -433,11 +441,13 @@ class Evaluator:
                         .reshape(-1, 16 + 2*padding)
                         .unsqueeze(0)
                     )
+                    noisy_image = x[sample_id].cpu()
                     if padding != 0:
+                        noisy_image = noisy_image[:, padding:-padding]
                         z = z[:,:,padding:-padding]
                     Evaluator.plot_detector_image_comparison(
-                        [x[sample_id].cpu(), y[sample_id].cpu(), z[0].cpu()],
-                        ["With noise", "Label", "Reconstructed"],
+                        [noisy_image, y[sample_id].cpu(), z[0].cpu()],
+                        ["With noise", "Label", model_label],
                         "two_tofs_disabled",
                         self.output_dir,
                     )
@@ -479,8 +489,12 @@ class Evaluator:
             "_".join(["real_image", add_to_label]),
             self.output_dir,
         )
+    def persist_var(self, save_var, filename):
+        with open(os.path.join(self.output_dir, filename), 'wb') as file:
+            pickle.dump(save_var, file)
 
     def measure_time(self, model_name):
+        print((subprocess.check_output("lscpu | grep 'Model name'", shell=True).strip()).decode())
         model = self.model_dict[model_name]
 
         data = torch.rand(1024, 60*(16+2*model.padding), device=model.device)
@@ -488,7 +502,7 @@ class Evaluator:
         t0 = benchmark.Timer(
             stmt='eval_model(model, data)',
             setup='from __main__ import eval_model',
-            globals={'model': model, 'data': data},
+            globals={'model': model.to('cpu'), 'data': data.to('cpu')},
             num_threads=1,
             label=model_name,
             sub_label='1024 random data points')
@@ -509,60 +523,51 @@ if __name__ == "__main__":
         model_dict = {"1TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
              "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
              "3TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "general model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "spec model": "outputs/tof_reconstructor/szero50e/checkpoints"}
+             "General model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "Spec model": "outputs/tof_reconstructor/szero50e/checkpoints"}
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-        e.measure_time("general model") 
-        e.plot_spectrogram_detector_image(3, 57)
-        # 2. real sample
-        # 2.1 real sample denoising
-        e.plot_real_data(3, ["spec model"], evaluated_plot_title_list=["Denoised"])
-        # 2.2 real sample disabled + denoising
-        e.plot_real_data(
-            3, ["spec model"], input_transform=DisableSpecificTOFs([3, 4]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= ["Reconstructed"])
-        # 1.1 graphic noisy+disabled vs. clear
-        e.plot_missing_tofs_comparison([7, 12])
-    
-        # 1.1.2 plot
-        e.plot_reconstructing_tofs_comparison([7, 12], "spec model")
-    
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1)}
+        e.measure_time("General model")
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
+        e.persist_var(result_dict, 'denoising.pkl')
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     
-        # 1.2 table RMSEs of specific models vs. general model vs. 'meaner'
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
-        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+        # 1.2 table RMSEs of specific models vs. General model vs. 'meaner'
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(model_dict.keys(), n=3)
+        result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
+        e.persist_var(result_dict, 'rec_comp.pkl')
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     
         # 1.3 heatmap plot rmse 1 TOF missing
-        rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["general model"])
+        rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
+        e.persist_var([rmse_tensor], 'rmse_tensor.pkl')
         e.plot_rmse_tensor([rmse_tensor])
     
         # 1.4 heatmap plot rmse 2 TOFs missing
-        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["general model"])
+        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"])
+        e.persist_var(mse_matrix, 'rmse_matrix.pkl')
         e.plot_rmse_matrix(mse_matrix, rmse_tensor)
     
     elif test_case == 1:
         # Appendix
-        model_dict = {"$\\gamma=0.3$ general": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
-             "$\\gamma=0.7$ general": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
-             "padding=0 general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
-             "padding=2 general": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "reference": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
-             #"1-4TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
-             #"1-5TOF": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",      
+        model_dict = {"$\\gamma=0.3$ CAE-64": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
+             "$\\gamma=0.7$ CAE-64": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
+             "padding=0 CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+             "padding=0 CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+             "padding=2 CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
+             "CCNN": "outputs/tof_reconstructor/748p94if/checkpoints/",  
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
-        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(model_dict.keys(), n=3)
+        result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
+        e.persist_var(result_dict, 'rec_comp_params.pkl')
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
@@ -574,14 +579,42 @@ if __name__ == "__main__":
              "CAE-128": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
              "CAE-256": "outputs/tof_reconstructor/b1cl83sg/checkpoints/",
              "CAE-512": "outputs/tof_reconstructor/xxwm25nj/checkpoints/",
-             "CAE-1024": "outputs/tof_reconstructor/67476x40/checkpoints/",   
+             "CAE-1024": "outputs/tof_reconstructor/67476x40/checkpoints/",
+             "Spec model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_3_disabled_tofs()
-        result_dict["2 neighbors"] = e.evaluate_neigbors(2, 2)
-        result_dict["2 opposite"] = e.evaluate_opposite(2, 2)
-        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs([7,12])
+
+        # 1. spectrogram detector image
+        e.plot_spectrogram_detector_image(3, 57)
+        # simulated sample denoised+rec
+        e.plot_reconstructing_tofs_comparison([7, 12], "Spec model")
+        
+        # 2. real sample
+        # 2.1 real sample denoising
+        keys = list(model_dict.keys())
+        e.plot_real_data(42, keys[:5], evaluated_plot_title_list=keys[:5])
+        
+        # 2.2 real sample disabled + denoising
+        plot_keys = keys[:7]+keys[-1:]
+        e.plot_real_data(
+                    42, plot_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= plot_keys)
+        
+        requested_keys = keys[:5]
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
+        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=3)
+        result_dict["2 neighbors"] = e.evaluate_neigbors(requested_keys, 2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(requested_keys, 2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(requested_keys, [7,12])
+        e.persist_var(result_dict, 'rec_comp_architectures.pkl')
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+
+        requested_keys = keys[1:2]+keys[-3:]
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(4,6)}
+        result_dict["1--4 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=4)
+        result_dict["1--5 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=5)
+        e.persist_var(result_dict, 'rec_comp_4_5.pkl')
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     else:
