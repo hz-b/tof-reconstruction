@@ -549,11 +549,11 @@ if __name__ == "__main__":
         test_case = 0
 
     if test_case == 0:
-        model_dict = {"1TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "3TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "General model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "Spec model": "outputs/tof_reconstructor/szero50e/checkpoints"}
+        model_dict = {"1TOF model": "outputs/tof_reconstructor/g0ebnecw/checkpoints",
+             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+             "3TOF model": "outputs/tof_reconstructor/d0ccdqnp/checkpoints",
+             "General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+             "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         e.measure_time("General model")
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
@@ -573,8 +573,8 @@ if __name__ == "__main__":
     
         # 1.3 heatmap plot rmse 1 TOF missing
         rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
-        e.persist_var([rmse_tensor], 'rmse_tensor.pkl')
-        e.plot_rmse_tensor([rmse_tensor])
+        e.persist_var(rmse_tensor, 'rmse_tensor.pkl')
+        e.plot_rmse_tensor(rmse_tensor)
     
         # 1.4 heatmap plot rmse 2 TOFs missing
         mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"])
@@ -583,12 +583,13 @@ if __name__ == "__main__":
     
     elif test_case == 1:
         # Appendix
-        model_dict = {"$\\gamma=0.3$ CAE-64": "outputs/tof_reconstructor/s2s49jhj/checkpoints/",
-             "$\\gamma=0.7$ CAE-64": "outputs/tof_reconstructor/41tg6fkf/checkpoints/",
+        model_dict = {"$\\gamma=0.3$ CAE-64": "outputs/tof_reconstructor/c9qnv5d1/checkpoints/",
+             "$\\gamma=0.7$ CAE-64": "outputs/tof_reconstructor/qhjst8f6/checkpoints/",
              "padding=0 CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
-             "padding=0 CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+             "padding=1 CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
              "padding=2 CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "CCNN": "outputs/tof_reconstructor/748p94if/checkpoints/",  
+             "CCNN": "outputs/tof_reconstructor/06cbqe7n/checkpoints/",  
+             "circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
@@ -608,9 +609,10 @@ if __name__ == "__main__":
              "CAE-128": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
              "CAE-256": "outputs/tof_reconstructor/b1cl83sg/checkpoints/",
              "CAE-512": "outputs/tof_reconstructor/xxwm25nj/checkpoints/",
-             "CAE-1024": "outputs/tof_reconstructor/67476x40/checkpoints/",
-             "Spec model": "outputs/tof_reconstructor/szero50e/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/szero50e/checkpoints",
+             "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
+             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+             "1-4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
+             "1-5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
 
