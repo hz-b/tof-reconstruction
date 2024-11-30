@@ -339,20 +339,49 @@ class Evaluator:
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
         plt.savefig(self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png', dpi=300, bbox_inches="tight")
 
-    def plot_rmse_tensor(self, rmse_list, labels=None):
-        f = plt.figure(figsize=(16, 4), constrained_layout=True)
-        for i,entry in enumerate(rmse_list):
-            label = labels[i] if labels is not None else None
-            plt.plot(entry.cpu(), label=label)
-        if labels is not None:
-            plt.legend()
+    def plot_rmse_tensor(self, rmse):
+        fig, ax1 = plt.subplots(figsize=(16, 4), constrained_layout=True)
+        # Example vectors
+        x = np.arange(16)  # Shared x-axis
+        #y1 = np.random.random(16) * 100  # Vector 1 with one scale
+        ang_dist = np.array([0., 0.14644661, 0.5, 0.85355339, 1., 0.85355339,
+                             0.5, 0.14644661, 0., 0.14644661, 0.5, 0.85355339,
+                             1., 0.85355339, 0.5, 0.14644661])  # Vector 2 with a different scale
+
+        # Use colors from the default Matplotlib color cycle
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        color1 = colors[0]  # First color in the cycle
+        color2 = colors[1]  # Second color in the cycle
+
+        # Plot the first vector (y1) with its scale on the primary y-axis
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
-        plt.yscale('log')
+        line1, = ax1.plot(x, rmse, color=color1, label='RMSE')  # Set zorder for line1
+        ax1.set_xlabel('TOF position [#]', fontsize=20)
+        ax1.set_ylabel('RMSE [arb.u.]', color=color1, fontsize=20)
+        plt.yticks(fontsize=20)
+        ax1.tick_params(axis='y', labelcolor=color1)
+
+        # Create a second y-axis that shares the same x-axis
+        ax2 = ax1.twinx()
+
+        # Plot the second vector (ang_dist) with its scale on the secondary y-axis
+        line2, = ax2.plot(x, ang_dist, color=color2, label='Angular Distribution', zorder=1)  # Set zorder for line2
+        ax2.set_ylabel('Angular Distribution', color=color2, fontsize=20)
+        ax2.tick_params(axis='y', labelcolor=color2)
+
+        # Add a single legend and place it inside the plot
+        lines = [line1, line2]
+        labels = [line.get_label() for line in lines]
+        ax2.legend(lines, labels, loc='upper left', bbox_to_anchor=(0, 1), frameon=True, fontsize=20)
+        #plt.yscale('log')
         plt.yticks(fontsize=20)
         plt.grid(alpha=0.8)
-        plt.xlabel("TOF position [#]", fontsize=20)
-        plt.ylabel("RMSE", fontsize=20)
+
+        # Show the plot
+        plt.tight_layout()
+
         plt.savefig(self.output_dir + "1_tof_failed.png")
+
 
     @staticmethod
     def detector_image_ax(ax, data, title):
