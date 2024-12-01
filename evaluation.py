@@ -532,7 +532,7 @@ class Evaluator:
             stmt='eval_model(model, data)',
             setup='from __main__ import eval_model',
             globals={'model': model.to('cpu'), 'data': data.to('cpu')},
-            num_threads=1,
+            num_threads=100,
             label=model_name,
             sub_label='1024 random data points')
         print(t0.timeit(repetitions))
@@ -574,22 +574,22 @@ if __name__ == "__main__":
         # 1.3 heatmap plot rmse 1 TOF missing
         rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
         e.persist_var(rmse_tensor, 'rmse_tensor.pkl')
-        e.plot_rmse_tensor(rmse_tensor)
+        e.plot_rmse_tensor(rmse_tensor.cpu())
     
         # 1.4 heatmap plot rmse 2 TOFs missing
         mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"])
         e.persist_var(mse_matrix, 'rmse_matrix.pkl')
-        e.plot_rmse_matrix(mse_matrix, rmse_tensor)
+        e.plot_rmse_matrix(mse_matrix.cpu(), rmse_tensor.cpu())
     
     elif test_case == 1:
         # Appendix
         model_dict = {"$\\gamma=0.3$ CAE-64": "outputs/tof_reconstructor/c9qnv5d1/checkpoints/",
              "$\\gamma=0.7$ CAE-64": "outputs/tof_reconstructor/qhjst8f6/checkpoints/",
-             "padding=0 CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
-             "padding=1 CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
-             "padding=2 CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "CCNN": "outputs/tof_reconstructor/06cbqe7n/checkpoints/",  
-             "circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
+             "$p=0$ CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+             "$p=1$ CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+             "$p=2$ CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
+             "CCNN": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
+             "Circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
@@ -631,7 +631,7 @@ if __name__ == "__main__":
         e.plot_real_data(
                     42, plot_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= plot_keys)
         
-        requested_keys = keys[:5]
+        requested_keys = keys[:5]+keys[-1:]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
         result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=3)
         result_dict["2 neighbors"] = e.evaluate_neigbors(requested_keys, 2, 2)
