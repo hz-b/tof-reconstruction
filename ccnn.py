@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class CConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid'):
@@ -19,10 +20,8 @@ class CConv2d(nn.Module):
         )
 
     def forward(self, x):
-        # Get input dimensions
         in_height, in_width = x.shape[2], x.shape[3]
 
-        # Calculate padding amounts
         pad_along_height = max(self.kernel_size[0] - self.stride[0], 0) if in_height % self.stride[0] == 0 else max(self.kernel_size[0] - (in_height % self.stride[0]), 0)
         pad_along_width = max(self.kernel_size[1] - self.stride[1], 0) if in_width % self.stride[1] == 0 else max(self.kernel_size[1] - (in_width % self.stride[1]), 0)
         
@@ -32,17 +31,19 @@ class CConv2d(nn.Module):
         pad_right = pad_along_width - pad_left
 
         if self.padding == 'same':
-            x = torch.cat([x[:, :, :, -pad_left:], x, x[:, :, :, :pad_right]], dim=3)
-            x = torch.cat([x[:, :, -pad_top:, :], x, x[:, :, :pad_bottom, :]], dim=2)
+            # Reflective-style padding using `F.pad`
+            x = F.pad(x, (pad_left, pad_right, pad_top, pad_bottom), mode='circular')
         elif self.padding == 'circ_width':
-            x = torch.cat([x[:, :, :, -pad_left:], x, x[:, :, :, :pad_right]], dim=3)
-            x = torch.cat([torch.zeros_like(x)[:, :, -pad_top:, :], x, torch.zeros_like(x)[:, :, :pad_bottom, :]], dim=2)
+            # Circular padding along width
+            x = F.pad(x, (0, 0, pad_top, pad_bottom), mode='constant')
+            x = F.pad(x, (pad_left, pad_right, 0, 0), mode='circular')
         elif self.padding == 'circ_height':
-            x = torch.cat([torch.zeros_like(x)[:, :, :, -pad_left:], x, torch.zeros_like(x)[:, :, :, :pad_right]], dim=3)
-            x = torch.cat([x[:, :, -pad_top:, :], x, x[:, :, :pad_bottom, :]], dim=2)
+            # Circular padding along height
+            x = F.pad(x, (0, 0, pad_top, pad_bottom), mode='circular')
+            x = F.pad(x, (pad_left, pad_right, 0, 0), mode='constant')
         elif self.padding != 'valid':
             raise ValueError(f"Padding '{self.padding}' is not supported.")
-
+        
         return self.conv(x)
         
 class CConvTranspose2d(nn.Module):
