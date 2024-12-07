@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class CConv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid'):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=(2, 2), padding='valid'):
         super(CConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -47,7 +47,7 @@ class CConv2d(nn.Module):
         return self.conv(x)
         
 class CConvTranspose2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), padding='valid'):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=(2, 2), padding='valid'):
         super(CConvTranspose2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -76,9 +76,10 @@ class CConvTranspose2d(nn.Module):
     def forward(self, inp):
         x = self.padding_layer(inp)
         x= self.conv_transpose(x)
-        crop_bottom = (x.shape[-2] - inp.shape[-2]) // 2
-        crop_top = x.shape[-2] - inp.shape[-2] - crop_bottom
-
-        crop_left = (x.shape[-1] - inp.shape[-1]) // 2
-        crop_right = x.shape[-1] - inp.shape[-1] - crop_left
-        return x[:, :, crop_left:-crop_right, crop_bottom:-crop_top]
+        crop_bottom = (x.shape[-2] - inp.shape[-2]*self.stride[0]) // 2
+        crop_top = x.shape[-2] - inp.shape[-2]*self.stride[0] - crop_bottom
+        total_width_crop = x.shape[-1] - inp.shape[-1]*self.stride[1]
+        crop_left =  total_width_crop // 2
+        crop_right = total_width_crop - crop_left
+        cropped = x[:, :, crop_left:-crop_right, crop_bottom:-crop_top]
+        return cropped
