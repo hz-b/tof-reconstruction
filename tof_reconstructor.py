@@ -227,20 +227,19 @@ class TOFReconstructor(L.LightningModule):
             )
 
                 # Final adjustment layer to ensure output of shape [batch_size, 1, dim_1_out, dim_2_out]
-        if not ccnn:
-            modules.append(
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dims[-1],
-                        out_channels=1,
-                        kernel_size=3,
-                        stride=1,
-                        padding=1,
-                        #padding_mode='circular',
-                    ),
-                    nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
-                )
+        modules.append(
+            nn.Sequential(
+                nn.Conv2d(
+                    hidden_dims[-1],
+                    out_channels=1,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    #padding_mode='circular',
+                ),
+                nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
             )
+        )
 
         return nn.Sequential(*modules)
 
@@ -607,11 +606,11 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512]
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64]
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref3_general_cae", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref3_general_cae_512_64_pad_0", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
