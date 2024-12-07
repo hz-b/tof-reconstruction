@@ -400,8 +400,11 @@ class Evaluator:
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir):
         if len(data_list) > 3:
-            rows = len(data_list) // 3 + (len(data_list) % 3 != 0)
-            columns = 3
+            if len(data_list) == 4:
+                columns = 2
+            else:
+                columns = 3
+            rows = len(data_list) // columns + (len(data_list) % columns != 0)
         else:
             rows = 1
             columns = len(data_list)
@@ -487,9 +490,33 @@ class Evaluator:
         with torch.no_grad():
             return self.model_dict[model_label](data)
 
-    def plot_real_data(self, sample_id, model_label_list, evaluated_plot_title_list, input_transform=None, add_to_label=""):
+    def eval_real_rec(self, sample_limit, model_label, input_transform=None, eval_on_tofs=None):
+        real_images = TOFReconstructor.get_real_data(
+                0, sample_limit, "datasets/210.hdf5"
+        )
+        padding = self.model_dict[model_label].padding
+        circular_transform = CircularPadding(padding)
+        if input_transform is not None:
+            composed_transform = Compose([input_transform, circular_transform])
+        else:
+            composed_transform = circular_transform
+        eval_func = lambda data: self.evaluate_model(data, model_label)
+        real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
+                real_images.to(self.device), eval_func, composed_transform
+            )
+        if padding != 0:
+                real_images = real_images[...,padding:-padding]
+                evaluated_real_data = evaluated_real_data[...,padding:-padding]
+        real_images = real_images[..., [eval_on_tofs]]
+        evaluated_real_data = evaluated_real_data[..., [eval_on_tofs]]
+        return ((real_images-evaluated_real_data)**2).mean()
+
+    def plot_real_data(self, sample_id, model_label_list, input_transform=None, add_to_label="", show_label=False):
         evaluated_images_list = []
+        evaluated_plot_title_list = []
+        print(model_label_list)
         for model_label in model_label_list:
+            evaluated_plot_title_list.append(model_label)
             real_images = TOFReconstructor.get_real_data(
                 sample_id, sample_id + 1, "datasets/210.hdf5"
             )
@@ -500,21 +527,35 @@ class Evaluator:
             else:
                 composed_transform = circular_transform
             eval_func = lambda data: self.evaluate_model(data, model_label)
+            if show_label:
+                real_label_images, evaluated_label_real_data = TOFReconstructor.evaluate_real_data(
+                    real_images.to(self.device), eval_func, circular_transform
+                )
             real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
                 real_images.to(self.device), eval_func, composed_transform
             )
             real_image = real_images[0].cpu()
             eval_real_image = evaluated_real_data[0].cpu()
+            if show_label:
+                real_label_image = real_label_images[0].cpu()
             if padding != 0:
                 real_image = real_image[:,padding:-padding]
                 eval_real_image = eval_real_image[:,padding:-padding]
+                if show_label:
+                    real_label_image = real_label_image[:,padding:-padding]
             evaluated_images_list.append(eval_real_image)
         if add_to_label != "":
             add_to_label = "_" + add_to_label
         add_to_label = str(sample_id) + add_to_label
+
+        preset_list = [real_image]
+        preset_label_list = ["Real data"]
+        if show_label:
+            preset_list.append(real_label_image)
+            preset_label_list.append("Label")
         Evaluator.plot_detector_image_comparison(
-            [real_image]+evaluated_images_list,
-            ["Real data"]+evaluated_plot_title_list,
+            preset_list+evaluated_images_list,
+            preset_label_list+evaluated_plot_title_list,
             "_".join(["real_image", add_to_label]),
             self.output_dir,
         )
