@@ -33,9 +33,6 @@ from transform import (
 )
 import h5py
 
-import os
-os.environ["WANDB_MODE"] = "offline"
-
 class TOFReconstructor(L.LightningModule):
     def __init__(
         self,
