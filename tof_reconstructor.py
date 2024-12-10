@@ -33,6 +33,8 @@ from transform import (
 )
 import h5py
 
+import os
+os.environ["WANDB_MODE"] = "offline"
 
 class TOFReconstructor(L.LightningModule):
     def __init__(
@@ -52,20 +54,22 @@ class TOFReconstructor(L.LightningModule):
         dropout_rate: float = 0.0,
         padding=0,
         batch_size: int = 32,
-        cae_hidden_dims=[32, 64, 128, 256, 512]
+        cae_hidden_dims=[32, 64, 128, 256, 512],
+        padding_mode: str | None = None
     ):
         super(TOFReconstructor, self).__init__()
         self.save_hyperparameters(ignore=["last_activation"])
         self.channels = channels
         self.padding = padding
         self.tof_count = 16 + 2 * self.padding
+        self.padding_mode = padding_mode
         self.cae_hidden_dims = cae_hidden_dims
         if architecture == "cae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, hidden_dims=cae_hidden_dims)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode)
         elif architecture == "unet":
             self.net = UNet2()
         elif architecture == "ccae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True, hidden_dims=cae_hidden_dims)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode)
         else:
             self.net = TOFReconstructor.create_sequential(
                 self.channels * self.tof_count,
@@ -165,7 +169,13 @@ class TOFReconstructor(L.LightningModule):
         return nn.Sequential(*nn_layers)
     
     @staticmethod
-    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256, 512), ccnn=False):
+    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256, 512), ccnn=False, padding_mode=None):
+        if padding_mode is None:
+            if ccnn:
+                padding_mode = 'same'
+            else:
+                padding_mode = 'zeros'
+
         hidden_dims = list(hidden_dims)
         modules = []
         in_channels = 1
@@ -175,7 +185,7 @@ class TOFReconstructor(L.LightningModule):
                     in_channels,
                     out_channels=hdim,
                     kernel_size=(3,3),
-                    padding='same',
+                    padding=padding_mode,
                 )
             else:
                 conv = nn.Conv2d(
@@ -184,7 +194,7 @@ class TOFReconstructor(L.LightningModule):
                         kernel_size=3,
                         stride=2,
                         padding=1,
-                        #padding_mode='circular',
+                        padding_mode=padding_mode,
                     )
             modules.append(
                 nn.Sequential(
@@ -205,7 +215,7 @@ class TOFReconstructor(L.LightningModule):
                     in_channels=hidden_dims[i],
                     out_channels=hidden_dims[i+1],
                     kernel_size=(3,3),
-                    padding='same',
+                    padding=padding_mode,
                 )
             else:
                 deconv = nn.ConvTranspose2d(
@@ -227,16 +237,26 @@ class TOFReconstructor(L.LightningModule):
             )
 
                 # Final adjustment layer to ensure output of shape [batch_size, 1, dim_1_out, dim_2_out]
-        modules.append(
-            nn.Sequential(
-                nn.Conv2d(
+        if ccnn:    
+            conv = CConv2d(
+                hidden_dims[-1],
+                out_channels=1,
+                kernel_size=(3,3),
+                stride=(1,1),
+                padding=padding_mode,
+            )
+        else:
+            conv = nn.Conv2d(
                     hidden_dims[-1],
                     out_channels=1,
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    #padding_mode='circular',
-                ),
+                    padding_mode=padding_mode,
+                )
+        modules.append(
+            nn.Sequential(
+                conv,
                 nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
             )
         )
@@ -606,7 +626,7 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64]
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
