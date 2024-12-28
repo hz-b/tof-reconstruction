@@ -513,7 +513,7 @@ class Evaluator:
 
         plt.xlabel('Gas Monitor Detector [mJ] ')
         plt.ylabel('Electron Intensity [arb.u.]')
-        plt.savefig('outputs/saturation.png')
+        plt.savefig('outputs/saturation.png', bbox_inches='tight')
 
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, eval_on_tofs=[]):
         real_images = TOFReconstructor.get_real_data(
