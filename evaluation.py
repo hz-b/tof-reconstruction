@@ -5,6 +5,7 @@ import os
 import sys
 import torch
 import subprocess
+import h5py
 from torch.utils import benchmark
 from datamodule import DefaultDataModule
 from dataset import H5Dataset
@@ -16,6 +17,7 @@ from transform import (
     DisableSpecificTOFs,
     GaussianNoise,
     HotPeaks,
+    Wiener,
     PerImageNormalize,
     Reshape,
     CircularPadding,
@@ -490,7 +492,30 @@ class Evaluator:
         with torch.no_grad():
             return self.model_dict[model_label](data)
 
-    def eval_real_rec(self, sample_limit, model_label, input_transform=None, eval_on_tofs=None):
+    @staticmethod
+    def plot_gasdet_electron_int(data_path="datasets/210.hdf5", sample_count=None, hdf_attribute="gasdet_after_att_mJ"):
+        f = h5py.File(data_path,'r')
+        imgs=f['acq_mV'][:sample_count]
+        gmd=f[hdf_attribute][:sample_count]
+        X=gmd[:,0]
+        Y=[np.sum(imgs[i]) for i in range(imgs.shape[0])]
+        x = X
+        y = np.array(Y)
+
+        slope, intercept = np.polyfit(x, y, 1)
+        y_fit = slope * x + intercept
+
+        colors = plt.cm.tab10.colors
+        scatter_color = colors[0]
+        line_color = colors[1]
+        plt.scatter(x, y, color=scatter_color, s=0.8, alpha=0.8, label='Data Points')
+        plt.plot(x, y_fit, color=line_color, label=f'Linear Fit: y = {slope:.2f}x + {intercept:.2f}')
+
+        plt.xlabel('Gas Monitor Detector [mJ] ')
+        plt.ylabel('Electron Intensity [arb.u.]')
+        plt.savefig('outputs/saturation.png')
+
+    def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, eval_on_tofs=[]):
         real_images = TOFReconstructor.get_real_data(
                 0, sample_limit, "datasets/210.hdf5"
         )
@@ -507,11 +532,13 @@ class Evaluator:
         if padding != 0:
                 real_images = real_images[...,padding:-padding]
                 evaluated_real_data = evaluated_real_data[...,padding:-padding]
-        real_images = real_images[..., [eval_on_tofs]]
-        evaluated_real_data = evaluated_real_data[..., [eval_on_tofs]]
+        #real_images = real_images[..., [eval_on_tofs]]
+        #evaluated_real_data = evaluated_real_data[..., [eval_on_tofs]]
+        if output_transform is not None:
+            real_images = output_transform(real_images)
         return ((real_images-evaluated_real_data)**2).mean()
 
-    def plot_real_data(self, sample_id, model_label_list, input_transform=None, add_to_label="", show_label=False):
+    def plot_real_data(self, sample_id, model_label_list, input_transform=None, add_to_label="", show_label=False, additional_transform_labels={"Wiener": Wiener()}):
         evaluated_images_list = []
         evaluated_plot_title_list = []
         print(model_label_list)
@@ -553,6 +580,9 @@ class Evaluator:
         if show_label:
             preset_list.append(real_label_image)
             preset_label_list.append("Label")
+            for key, entry in additional_transform_labels.items():
+                preset_list.append(entry(real_label_image))
+                preset_label_list.append(key)
         Evaluator.plot_detector_image_comparison(
             preset_list+evaluated_images_list,
             preset_label_list+evaluated_plot_title_list,
@@ -629,7 +659,7 @@ if __name__ == "__main__":
              "$p=0$ CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
              "$p=1$ CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
              "$p=2$ CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "CCNN": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
+             "CCNN": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",  #8c8o7h9j
              "Circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
@@ -651,9 +681,11 @@ if __name__ == "__main__":
              "CAE-256": "outputs/tof_reconstructor/b1cl83sg/checkpoints/",
              "CAE-512": "outputs/tof_reconstructor/xxwm25nj/checkpoints/",
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
-             "1-4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
-             "1-5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
+             "2TOF model": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #j75cmjsq
+             "1-4TOF": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #lxfy2zgs
+             "1-5TOF": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #5y9vu48g
+             "AdamW": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+             "Adam": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
 
@@ -662,17 +694,22 @@ if __name__ == "__main__":
         # simulated sample denoised+rec
         e.plot_reconstructing_tofs_comparison([7, 12], "Spec model")
         
+        # AdamW vs Adam
+        e.plot_real_data(42, ["AdamW", "Adam"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="adamw", show_label=True)
+        
         # 2. real sample
         # 2.1 real sample denoising
         keys = list(model_dict.keys())
-        e.plot_real_data(42, keys[:5], evaluated_plot_title_list=keys[:5])
+        architecture_keys = keys[:5]
+        spec_2_tof_keys = keys[5:7]
+        bigger_tof_count_keys = keys[7:9]
+        e.plot_real_data(42, architecture_keys)
         
         # 2.2 real sample disabled + denoising
-        plot_keys = keys[:7]+keys[-1:]
         e.plot_real_data(
-                    42, plot_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", evaluated_plot_title_list= plot_keys)
+                    42, architecture_keys+spec_2_tof_keys+["Mean model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs")
         
-        requested_keys = keys[:5]+keys[-1:]
+        requested_keys = architecture_keys+["Mean model"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
         result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=3)
         result_dict["2 neighbors"] = e.evaluate_neigbors(requested_keys, 2, 2)
@@ -682,12 +719,14 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
-        requested_keys = keys[1:2]+keys[-3:]
+        requested_keys = ["CAE-64"] + bigger_tof_count_keys + ["Mean model"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(4,6)}
         result_dict["1--4 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=4)
         result_dict["1--5 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=5)
         e.persist_var(result_dict, 'rec_comp_4_5.pkl')
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+    elif test_case == 3:
+        Evaluator.plot_gasdet_electron_int(sample_count=None)
     else:
         print("Test case not found")
