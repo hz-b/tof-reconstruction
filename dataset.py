@@ -1,7 +1,7 @@
 import h5py
 import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 class H5Dataset(Dataset):
@@ -14,7 +14,7 @@ class H5Dataset(Dataset):
         
         # Step 1: Compute the total number of rows
         total_rows = 0
-        for path in tqdm(path_list, desc="Calculating total rows"):
+        for path in tqdm(path_list, desc="Calculating total rows", leave=False):
             with h5py.File(path, "r") as f:
                 dataset = f["x"]
                 assert isinstance(dataset, h5py.Dataset)
@@ -31,7 +31,7 @@ class H5Dataset(Dataset):
         
         # Step 3: Load data into the reserved tensor
         current_index = 0
-        for path in tqdm(path_list, desc="Loading data"):
+        for path in tqdm(path_list, desc="Loading data", leave=False):
             with h5py.File(path, "r") as f:
                 dataset = f["x"]
                 assert isinstance(dataset, h5py.Dataset)

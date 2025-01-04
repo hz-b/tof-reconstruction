@@ -38,6 +38,7 @@ def Job(joblist):
     ELL_TILT = joblist[5]
     PULSE = joblist[6]
     HOT_ENABLED = joblist[8]
+    PHASE_STEP = joblist[9]
 
     PHASE_STEPS = 80  # 1st dimension of Y
     ENERGY_STEPS = 60  # 2nd dimension of X and Y
@@ -66,7 +67,7 @@ def Job(joblist):
         return ke + kick * np.cos(DANGLE - phase) * ef(phase)
 
     def sim(ke, kick, phase):  # simulation of partial wave
-
+        en = sine(ke, kick, phase)[0]
         return (
             ANGDIST
             * np.array([gauss(EA, en, ENERGY_GAUSS) for en in sine(ke, kick, phase)]).T
@@ -107,7 +108,10 @@ def Job(joblist):
         kick = np.random.uniform(low=KICK_MIN, high=KICK_MAX, size=None)
         features = PEAKS
         for _ in range(features):
-            centerx = int(np.random.rand() * PHASE_STEPS)
+            if PHASE_STEP is not None:
+                centerx = PHASE_STEP
+            else:
+                centerx = int(np.random.rand() * PHASE_STEPS)
             centery = int((np.random.rand()) * (ENERGY_STEPS - kick * 2) + kick)
             sigmax = np.random.rand() * sigmax_max
             sigmay = np.random.rand() * sigmay_max
@@ -135,12 +139,17 @@ def Job(joblist):
         x.append(X.flatten())
 
     if __name__ == "__main__":
+        if PHASE_STEP is not None:
+            phase_step_string = "_phase"+str(PHASE_STEP)
+        else:
+            phase_step_string = ""
         fe = h5py.File(
             train_export
             + "N"
             + str(N_batch)
             + "_peaks"
             + str(PEAKS)
+            + phase_step_string
             + "_seed"
             + str(joblist[7])
             + ".h5",
@@ -156,16 +165,27 @@ def Job(joblist):
 if __name__ == "__main__":
     # Amount of multithreading tasks/cpus
     Number_Workers = 100
+    phase_separation_mode = True
 
-    train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
+    if phase_separation_mode:
+        train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/"
+    else:
+        train_export = "./datasets/sigmaxy_7_peaks_0_20_hot_15/"
     if not os.path.exists(train_export):
         os.makedirs(train_export)
 
     Ltodo = []
     # Amount of samples per file
-    N = 100000
-    files_per_peak = 5
-    max_peaks = 20
+    N = 10000#0000
+    if phase_separation_mode: 
+        files_per_peak = 1
+    else:
+        files_per_peak = 5
+    
+    if phase_separation_mode:
+        max_peaks = 1
+    else:
+        max_peaks = 20
     init_seed = 42 + int(sys.argv[1]) * files_per_peak * max_peaks
     hot_enabled = True
 
@@ -175,22 +195,39 @@ if __name__ == "__main__":
     ellipt = 0.73
     elltilt = (90 - 22.5) / 180 * np.pi
     pulse = 30
-
-    for file_nr in range(files_per_peak):
-        for peak in range(1, max_peaks + 1):
+    if phase_separation_mode:
+        for phase_step in range(0, 80):
             Ltodo.append(
                 [
                     N,
                     kick_min,
                     kick_max,
-                    peak,
+                    1,
                     ellipt,
                     elltilt,
                     pulse,
-                    init_seed + file_nr * max_peaks + peak,
-                    hot_enabled
+                    init_seed,
+                    hot_enabled,
+                    phase_step
                 ]
             )
+    else:
+        for file_nr in range(files_per_peak):
+            for peak in range(1, max_peaks + 1):
+                Ltodo.append(
+                    [
+                        N,
+                        kick_min,
+                        kick_max,
+                        peak,
+                        ellipt,
+                        elltilt,
+                        pulse,
+                        init_seed + file_nr * max_peaks + peak,
+                        hot_enabled,
+                        None
+                    ]
+                )
 
 
     with Pool(Number_Workers) as p:
