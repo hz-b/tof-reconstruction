@@ -786,7 +786,7 @@ if __name__ == "__main__":
             
             for i in datamodule.train_dataloader():
                 with torch.no_grad():
-                    diff = model(i[0].flatten(start_dim=1).cuda()) - i[1].cuda()
+                    diff = model(i[0].flatten(start_dim=1).to(model.device)) - i[1].to(model.device)
                 rmse_list.append(torch.sqrt((diff**2).mean()))
             phase_rmse_list.append(torch.stack(rmse_list).mean())
         phase_rmse_list = torch.stack(phase_rmse_list)
