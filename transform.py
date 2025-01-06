@@ -156,6 +156,8 @@ class DisableRandomTOFs(torch.nn.Module):
                 new_element = tof_list[0]
                 tof_list = tof_list[tof_list != new_element]
                 disabled_tofs = torch.cat((disabled_tofs, new_element.view(1)))
+        if disabled_tofs_count == 0:
+            return img_copy
         assert disabled_tofs.shape[0] <= disabled_tofs_count
         assert torch.unique(disabled_tofs).shape[0] == disabled_tofs_count
         img_copy[:, disabled_tofs] = 0.0

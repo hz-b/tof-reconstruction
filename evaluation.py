@@ -80,6 +80,7 @@ class Evaluator:
         model_dict: dict,
         device: torch.device = torch.get_default_device(),
         output_dir: str = "outputs/",
+        load_max=None
     ):
         self.device = device
         for key, value in model_dict.items():
@@ -108,7 +109,7 @@ class Evaluator:
             path_list=list(glob.iglob("datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5")),
             input_transform=None,
             target_transform=target_transform,
-            load_max=None,
+            load_max=load_max,
         )
     @staticmethod
     def load_first_ckpt_file(folder_path):
@@ -728,5 +729,73 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     elif test_case == 3:
         Evaluator.plot_gasdet_electron_int(sample_count=None)
+    elif test_case == 4:
+        model_dict = {"general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/"}
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=1)
+        model = e.model_dict['general']
+        disabled_tofs_min = 1
+        disabled_tofs_max = 3
+        padding = 0
+        batch_size = 1024
+        
+        target_transform = Compose(
+            [
+                Reshape(),
+                PerImageNormalize(),
+                #CircularPadding(padding),
+            ]
+        )
+        
+        input_transform = Compose(
+            [
+                Reshape(),
+                HotPeaks(0.1, 1.0),
+                PerImageNormalize(),
+                GaussianNoise(0.1),
+                PerImageNormalize(),
+                DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
+                #DisableSpecificTOFs([3,11]),
+                PerImageNormalize(),
+                #CircularPadding(padding),
+            ]
+        )
+        
+        phase_rmse_list = []
+        
+        for i in trange(80):
+            dataset = H5Dataset(
+                path_list=["datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/N10000_peaks1_phase"+str(i)+"_seed42.h5"],
+                input_transform=input_transform,
+                target_transform=target_transform,
+                load_max=None,
+            )
+            workers = psutil.Process().cpu_affinity()
+            num_workers = len(workers) if workers is not None else 0
+            
+            datamodule = DefaultDataModule(
+                dataset=dataset,
+                num_workers=num_workers,
+                on_gpu=torch.cuda.is_available(),
+                batch_size_train=batch_size,
+                batch_size_val=batch_size,
+                split=[1., 0.,0.]
+            )
+            datamodule.setup()
+        
+            rmse_list = []
+            
+            for i in datamodule.train_dataloader():
+                with torch.no_grad():
+                    diff = model(i[0].flatten(start_dim=1).cuda()) - i[1].cuda()
+                rmse_list.append(torch.sqrt((diff**2).mean()))
+            phase_rmse_list.append(torch.stack(rmse_list).mean())
+        phase_rmse_list = torch.stack(phase_rmse_list)
+        with open('outputs/phase_rmse_list.pkl', 'wb') as handle:
+            pickle.dump(phase_rmse_list.cpu(), handle)
+        plt.plot(phase_rmse_list.cpu())
+        plt.xlabel("Time [step]", fontsize=20)
+        plt.ylabel("RMSE [a.u.]", fontsize=20)
+        plt.savefig('outputs/phase_rmse_list.pdf', bbox_inches='tight')
+        plt.savefig('outputs/phase_rmse_list.png', bbox_inches='tight')
     else:
         print("Test case not found")
