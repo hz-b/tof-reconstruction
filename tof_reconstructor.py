@@ -28,7 +28,6 @@ from transform import (
     GaussianNoise,
     HotPeaks,
     PerImageNormalize,
-    PruneNegative,
     Reshape,
 )
 import h5py
@@ -402,7 +401,6 @@ class TOFReconstructor(L.LightningModule):
     def evaluate_real_data(real_images, evaluation_function, input_transform=None):
         real_image_transform = Compose(
             [
-                PruneNegative(),
                 PerImageNormalize(),
             ]
         )
@@ -418,7 +416,7 @@ class TOFReconstructor(L.LightningModule):
         evaluated_real_data = evaluated_real_data.reshape(
             -1, real_images.shape[1], real_images.shape[2]
         )
-        evaluated_data_transform = Compose([PruneNegative(), PerImageNormalize()])
+        evaluated_data_transform = Compose([PerImageNormalize()])
         evaluated_real_data = torch.stack(
             [evaluated_data_transform(evaluated) for evaluated in evaluated_real_data]
         )
