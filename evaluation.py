@@ -508,7 +508,7 @@ class Evaluator:
         y_cut = y[mask]
 
         slope, intercept = np.polyfit(x_cut, y_cut, 1)
-        y_fit = slope * x_cut + intercept
+        y_fit = slope * x + intercept
 
         colors = plt.cm.tab10.colors
         scatter_color = colors[0]
