@@ -502,9 +502,13 @@ class Evaluator:
         Y=[np.sum(imgs[i]) for i in range(imgs.shape[0])]
         x = X
         y = np.array(Y)
+        
+        mask = (x>0.02) & (y>9000)
+        x_cut = x[mask]
+        y_cut = y[mask]
 
-        slope, intercept = np.polyfit(x, y, 1)
-        y_fit = slope * x + intercept
+        slope, intercept = np.polyfit(x_cat, y_cat, 1)
+        y_fit = slope * x_cat + intercept
 
         colors = plt.cm.tab10.colors
         scatter_color = colors[0]
