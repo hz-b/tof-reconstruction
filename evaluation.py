@@ -708,7 +708,7 @@ if __name__ == "__main__":
              "$p=0$ CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
              "$p=1$ CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
              "$p=2$ CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "CCNN": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",  #8c8o7h9j
+             "CCNN": "outputs/tof_reconstructor/8c8o7h9j/checkpoints/",
              "Circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
@@ -724,15 +724,15 @@ if __name__ == "__main__":
     elif test_case == 2:
         # Architecture comparison
         model_dict = {
-             "CAE-32": "outputs/tof_reconstructor/wzhx8vig/checkpoints/",
-             "CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
-             "CAE-128": "outputs/tof_reconstructor/9ycv6lmg/checkpoints/",
-             "CAE-256": "outputs/tof_reconstructor/b1cl83sg/checkpoints/",
-             "CAE-512": "outputs/tof_reconstructor/xxwm25nj/checkpoints/",
+             "CAE-32": "outputs/tof_reconstructor/o6nqth09/checkpoints/",
+             "CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+             "CAE-128": "outputs/tof_reconstructor/gvd9sv1x/checkpoints/",
+             "CAE-256": "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
+             "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #j75cmjsq
-             "1-4TOF": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #lxfy2zgs
-             "1-5TOF": "outputs/tof_reconstructor/7w5lfbqf/checkpoints", #5y9vu48g
+             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+             "1-4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
+             "1-5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
              "AdamW": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
              "Adam": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",
              }
@@ -847,7 +847,7 @@ if __name__ == "__main__":
         plt.savefig('outputs/phase_rmse_list.png', bbox_inches='tight')
     elif test_case == 5:
         model_dict = {
-            "CAE-64": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",
+            "CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
             "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
         }
         e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
