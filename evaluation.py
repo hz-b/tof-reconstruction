@@ -853,5 +853,16 @@ if __name__ == "__main__":
         e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
         print(e.eval_real_rec_comparison("CAE-64", None))
         print(e.eval_real_rec_comparison("CAE-512", None))
+    elif test_case == 6:
+        model_dict = {
+            "CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
+        }
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=None)
+        dataloader = e.test_with_input_transform(None) 
+        stack = []
+        for i in tqdm(dataloader):
+            stack.append(i[1].sum(dim=0).sum(dim=0))
+        stack = torch.stack(stack).sum(dim=0)
+        print(stack)
     else:
         print("Test case not found")
