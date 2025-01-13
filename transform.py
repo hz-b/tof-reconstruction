@@ -253,3 +253,7 @@ class Wiener(torch.nn.Module):
         device = img.device
         img = torch.from_numpy(wiener(img.detach().cpu().numpy())).float().to(device)
         return img
+        
+class ZeroTransform(torch.nn.Module):
+    def __call__(self, tensor):
+        return torch.zeros_like(tensor)

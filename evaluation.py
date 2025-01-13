@@ -21,6 +21,7 @@ from transform import (
     PerImageNormalize,
     Reshape,
     CircularPadding,
+    ZeroTransform,
 )
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
@@ -541,29 +542,50 @@ class Evaluator:
         plt.savefig('outputs/saturation_baseline_corrected.png', bbox_inches='tight')
         plt.show()
 
-    def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, eval_on_tofs=[]):
+    def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None):
         real_images = TOFReconstructor.get_real_data(
                 0, sample_limit, "datasets/210.hdf5"
         )
-        padding = self.model_dict[model_label].padding
+        if model_label == None:
+            padding = 0
+        else:
+            padding = self.model_dict[model_label].padding
         circular_transform = CircularPadding(padding)
         if input_transform is not None:
             composed_transform = Compose([input_transform, circular_transform])
         else:
             composed_transform = circular_transform
-        eval_func = lambda data: self.evaluate_model(data, model_label)
+
+        if model_label == None:
+            eval_func = lambda data: data
+        else:
+            eval_func = lambda data: self.evaluate_model(data, model_label)
         real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
                 real_images.to(self.device), eval_func, composed_transform
             )
         if padding != 0:
                 real_images = real_images[...,padding:-padding]
                 evaluated_real_data = evaluated_real_data[...,padding:-padding]
-        #real_images = real_images[..., [eval_on_tofs]]
-        #evaluated_real_data = evaluated_real_data[..., [eval_on_tofs]]
         if output_transform is not None:
             real_images = output_transform(real_images)
-        return ((real_images-evaluated_real_data)**2).mean()
+        return ((real_images-evaluated_real_data)**2).mean().item()
 
+    def eval_real_rec_comparison(self, model_label, sample_limit=None):
+        results = (
+            self.eval_real_rec(sample_limit, model_label, output_transform=Wiener()),
+            self.eval_real_rec(sample_limit, model_label, output_transform=None),
+            self.eval_real_rec(sample_limit, None, output_transform=Wiener()),
+            self.eval_real_rec(sample_limit, None, output_transform=ZeroTransform())
+        )
+    
+        return (
+            f"({model_label} vs Wiener: {results[0]}, "
+            f"{model_label} vs Original: {results[1]}, "
+            f"Original vs Wiener: {results[2]}, "
+            f"Original vs Empty: {results[3]})"
+        )
+        
+        
     def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_label=False, additional_transform_labels={"Wiener": Wiener()}):
         evaluated_images_list = []
         evaluated_plot_title_list = []
@@ -823,5 +845,13 @@ if __name__ == "__main__":
         plt.ylabel("RMSE [a.u.]", fontsize=20)
         plt.savefig('outputs/phase_rmse_list.pdf', bbox_inches='tight')
         plt.savefig('outputs/phase_rmse_list.png', bbox_inches='tight')
+    elif test_case == 5:
+        model_dict = {
+            "CAE-64": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",
+            "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
+        }
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
+        print(e.eval_real_rec_comparison("CAE-64", None))
+        print(e.eval_real_rec_comparison("CAE-512", None))
     else:
         print("Test case not found")
