@@ -80,6 +80,7 @@ class Evaluator:
         model_dict: dict,
         device: torch.device = torch.get_default_device(),
         output_dir: str = "outputs/",
+        dataset = "datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5",
         load_max=None
     ):
         self.device = device
@@ -104,13 +105,13 @@ class Evaluator:
                 PerImageNormalize(),
             ]
         )
-
-        self.dataset = H5Dataset(
-            path_list=list(glob.iglob("datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5")),
-            input_transform=None,
-            target_transform=target_transform,
-            load_max=load_max,
-        )
+        if dataset is not None:
+            self.dataset = H5Dataset(
+                path_list=list(glob.iglob("datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5")),
+                input_transform=None,
+                target_transform=target_transform,
+                load_max=load_max,
+            )
     @staticmethod
     def load_first_ckpt_file(folder_path):
         # List all files in the folder
@@ -494,31 +495,51 @@ class Evaluator:
             return self.model_dict[model_label](data)
 
     @staticmethod
-    def plot_gasdet_electron_int(data_path="datasets/210.hdf5", sample_count=None, hdf_attribute="gasdet_after_att_mJ"):
-        f = h5py.File(data_path,'r')
-        imgs=f['acq_mV'][:sample_count]
-        gmd=f[hdf_attribute][:sample_count]
-        X=gmd[:,0]
-        Y=[np.sum(imgs[i]) for i in range(imgs.shape[0])]
-        x = X
+    def plot_gasdet_electron_int(
+        data_path="datasets/210.hdf5", 
+        sample_count=None, 
+        hdf_attribute="gasdet_after_att_mJ"
+    ):
+        # Load data from HDF5
+        f = h5py.File(data_path, 'r')
+        imgs = f['acq_mV'][:sample_count]
+        gmd = f[hdf_attribute][:sample_count]
+        X = gmd[:, 0]
+        Y = [np.sum(imgs[i]) for i in range(imgs.shape[0])]
+    
+        # Convert to numpy arrays
+        x = np.array(X)
         y = np.array(Y)
-        
-        mask = (x>0.02) & (y>9000)
+    
+        # Mask to filter data
+        mask = (x > 0.02) & (y > 9000)
         x_cut = x[mask]
         y_cut = y[mask]
+    
+        # Baseline correction: Fit a baseline and subtract it
+        baseline_slope, baseline_intercept = np.polyfit(x_cut, y_cut, 1)
+        baseline = baseline_slope * x + baseline_intercept
+        y_corrected = y - baseline  # Subtract the baseline
+    
+        # Fit the corrected data to a new linear model
+        slope, intercept = np.polyfit(x_cut, y_corrected[mask], 1)
 
-        slope, intercept = np.polyfit(x_cut, y_cut, 1)
+        # Define fit line for visualization
         y_fit = slope * x + intercept
-
+    
+        # Colors for scatter and fit line
         colors = plt.cm.tab10.colors
         scatter_color = colors[0]
         line_color = colors[1]
-        plt.scatter(x, y, color=scatter_color, s=0.8, alpha=0.8, label='Data Points')
-        plt.plot(x, y_fit, color=line_color, label=f'Linear Fit: y = {slope:.2f}x + {intercept:.2f}')
-
-        plt.xlabel('Gas Monitor Detector [mJ] ')
+    
+        # Plotting
+        plt.scatter(x, y_corrected, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
+        plt.plot(x, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
+    
+        plt.xlabel('Gas Monitor Detector [mJ]')
         plt.ylabel('Electron Intensity [arb.u.]')
-        plt.savefig('outputs/saturation.png', bbox_inches='tight')
+        plt.savefig('outputs/saturation_baseline_corrected.png', bbox_inches='tight')
+        plt.show()
 
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, eval_on_tofs=[]):
         real_images = TOFReconstructor.get_real_data(
@@ -543,14 +564,15 @@ class Evaluator:
             real_images = output_transform(real_images)
         return ((real_images-evaluated_real_data)**2).mean()
 
-    def plot_real_data(self, sample_id, model_label_list, input_transform=None, add_to_label="", show_label=False, additional_transform_labels={"Wiener": Wiener()}):
+    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_label=False, additional_transform_labels={"Wiener": Wiener()}):
         evaluated_images_list = []
         evaluated_plot_title_list = []
-        print(model_label_list)
+        if model_label_list is None:
+            model_label_list = list(self.model_dict.keys())
         for model_label in model_label_list:
             evaluated_plot_title_list.append(model_label)
             real_images = TOFReconstructor.get_real_data(
-                sample_id, sample_id + 1, "datasets/210.hdf5"
+                sample_id, sample_id + 1, data_path
             )
             padding = self.model_dict[model_label].padding
             circular_transform = CircularPadding(padding)
