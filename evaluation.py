@@ -816,7 +816,7 @@ if __name__ == "__main__":
             phase_intensity_list = []
             for i in trange(80, leave=False):
                 dataset = H5Dataset(
-                    path_list=["datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/N10_peaks1_phase"+str(i)+"_seed84.h5"], #10000 #42
+                    path_list=["datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/N10000_peaks1_phase"+str(i)+"_seed42.h5"],
                     input_transform=input_transform,
                     target_transform=target_transform,
                     load_max=None,
