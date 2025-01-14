@@ -539,7 +539,7 @@ class Evaluator:
     
         plt.xlabel('Gas Monitor Detector [mJ]')
         plt.ylabel('Electron Intensity [arb.u.]')
-        plt.savefig('outputs/saturation_baseline_corrected.png', bbox_inches='tight')
+        plt.savefig('outputs/saturation.png', bbox_inches='tight')
         plt.show()
 
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None):
@@ -779,7 +779,7 @@ if __name__ == "__main__":
         Evaluator.plot_gasdet_electron_int(sample_count=None)
     elif test_case == 4:
         model_dict = {"general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/"}
-        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=1)
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
         model = e.model_dict['general']
         disabled_tofs_min = 1
         disabled_tofs_max = 3
@@ -809,6 +809,7 @@ if __name__ == "__main__":
         )
         
         phase_rmse_list = []
+        phase_intensity_list = []
         
         for i in trange(80):
             dataset = H5Dataset(
@@ -831,18 +832,26 @@ if __name__ == "__main__":
             datamodule.setup()
         
             rmse_list = []
+            intensity_list = []
             
             for i in datamodule.train_dataloader():
                 with torch.no_grad():
-                    diff = model(i[0].flatten(start_dim=1).to(model.device)) - i[1].to(model.device)
-                rmse_list.append(torch.sqrt((diff**2).mean()))
+                    model_input = i[0].flatten(start_dim=1).to(model.device)
+                    target = i[1].to(model.device)
+                    diff = model(model_input)[:, 0] - target
+                rmse_list.append((diff**2).mean())
+                intensity_list.append(((i[1].to(model.device))**2).mean())
             phase_rmse_list.append(torch.stack(rmse_list).mean())
+            phase_intensity_list.append(torch.stack(intensity_list).mean())
         phase_rmse_list = torch.stack(phase_rmse_list)
+        phase_intensity_tensor = torch.stack(phase_intensity_list)
         with open('outputs/phase_rmse_list.pkl', 'wb') as handle:
             pickle.dump(phase_rmse_list.cpu(), handle)
-        plt.plot(phase_rmse_list.cpu())
+        plt.plot(phase_rmse_list.cpu(), label="Error")
+        plt.plot(phase_intensity_tensor.cpu(), label="Intensity")
         plt.xlabel("Time [step]", fontsize=20)
         plt.ylabel("RMSE [a.u.]", fontsize=20)
+        plt.legend()
         plt.savefig('outputs/phase_rmse_list.pdf', bbox_inches='tight')
         plt.savefig('outputs/phase_rmse_list.png', bbox_inches='tight')
     elif test_case == 5:
