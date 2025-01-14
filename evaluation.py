@@ -744,7 +744,7 @@ if __name__ == "__main__":
         e.plot_reconstructing_tofs_comparison([7, 12], "Spec model")
         
         # AdamW vs Adam
-        e.plot_real_data(42, model_label_list=["AdamW", "Adam"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="adamw", show_label=True)
+        e.plot_real_data(42, model_label_list=["AdamW", "Adam"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="adamw", show_label=True, additional_transform_labels={})
         
         # 2. real sample
         # 2.1 real sample denoising
@@ -752,11 +752,11 @@ if __name__ == "__main__":
         architecture_keys = keys[:5]
         spec_2_tof_keys = keys[5:7]
         bigger_tof_count_keys = keys[7:9]
-        e.plot_real_data(42, model_label_list=architecture_keys)
+        e.plot_real_data(42, model_label_list=architecture_keys, additional_transform_labels={})
         
         # 2.2 real sample disabled + denoising
         e.plot_real_data(
-                    42, model_label_list=architecture_keys+spec_2_tof_keys+["Mean model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs")
+                    42, model_label_list=architecture_keys+spec_2_tof_keys+["Mean model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={})
         
         requested_keys = architecture_keys+["Mean model"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
