@@ -779,81 +779,117 @@ if __name__ == "__main__":
         Evaluator.plot_gasdet_electron_int(sample_count=None)
     elif test_case == 4:
         model_dict = {"general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/"}
-        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=1)
         model = e.model_dict['general']
         disabled_tofs_min = 1
         disabled_tofs_max = 3
         padding = 0
         batch_size = 1024
         
-        target_transform = Compose(
-            [
-                Reshape(),
-                PerImageNormalize(),
-                #CircularPadding(padding),
-            ]
-        )
+        disabled_tof_rmse_list = []
+        disabled_tof_intensity_list = []
+        for disabled_tof in trange(16):
         
-        input_transform = Compose(
-            [
-                Reshape(),
-                HotPeaks(0.1, 1.0),
-                PerImageNormalize(),
-                GaussianNoise(0.1),
-                PerImageNormalize(),
-                DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
-                #DisableSpecificTOFs([3,11]),
-                PerImageNormalize(),
-                #CircularPadding(padding),
-            ]
-        )
-        
-        phase_rmse_list = []
-        phase_intensity_list = []
-        
-        for i in trange(80):
-            dataset = H5Dataset(
-                path_list=["datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/N10000_peaks1_phase"+str(i)+"_seed42.h5"],
-                input_transform=input_transform,
-                target_transform=target_transform,
-                load_max=None,
+            target_transform = Compose(
+                [
+                    Reshape(),
+                    PerImageNormalize(),
+                    #CircularPadding(padding),
+                ]
             )
-            workers = psutil.Process().cpu_affinity()
-            num_workers = len(workers) if workers is not None else 0
             
-            datamodule = DefaultDataModule(
-                dataset=dataset,
-                num_workers=num_workers,
-                on_gpu=torch.cuda.is_available(),
-                batch_size_train=batch_size,
-                batch_size_val=batch_size,
-                split=[1., 0.,0.]
+            input_transform = Compose(
+                [
+                    Reshape(),
+                    HotPeaks(0.1, 1.0),
+                    PerImageNormalize(),
+                    GaussianNoise(0.1),
+                    PerImageNormalize(),
+                    #DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
+                    DisableSpecificTOFs([disabled_tof]),
+                    PerImageNormalize(),
+                    #CircularPadding(padding),
+                ]
             )
-            datamodule.setup()
-        
-            rmse_list = []
-            intensity_list = []
             
-            for i in datamodule.train_dataloader():
-                with torch.no_grad():
-                    model_input = i[0].flatten(start_dim=1).to(model.device)
-                    target = i[1].to(model.device)
-                    diff = model(model_input)[:, 0] - target
-                rmse_list.append((diff**2).mean())
-                intensity_list.append(((i[1].to(model.device))**2).mean())
-            phase_rmse_list.append(torch.stack(rmse_list).mean())
-            phase_intensity_list.append(torch.stack(intensity_list).mean())
-        phase_rmse_list = torch.stack(phase_rmse_list)
-        phase_intensity_tensor = torch.stack(phase_intensity_list)
-        with open('outputs/phase_rmse_list.pkl', 'wb') as handle:
-            pickle.dump(phase_rmse_list.cpu(), handle)
-        plt.plot(phase_rmse_list.cpu(), label="Error")
-        plt.plot(phase_intensity_tensor.cpu(), label="Intensity")
-        plt.xlabel("Time [step]", fontsize=20)
-        plt.ylabel("RMSE [a.u.]", fontsize=20)
-        plt.legend()
-        plt.savefig('outputs/phase_rmse_list.pdf', bbox_inches='tight')
-        plt.savefig('outputs/phase_rmse_list.png', bbox_inches='tight')
+            phase_rmse_list = []
+            phase_intensity_list = []
+            for i in trange(80, leave=False):
+                dataset = H5Dataset(
+                    path_list=["datasets/sigmaxy_7_peaks_0_20_hot_15_phase_separated/N10_peaks1_phase"+str(i)+"_seed84.h5"], #10000 #42
+                    input_transform=input_transform,
+                    target_transform=target_transform,
+                    load_max=None,
+                )
+                workers = psutil.Process().cpu_affinity()
+                num_workers = len(workers) if workers is not None else 0
+                
+                datamodule = DefaultDataModule(
+                    dataset=dataset,
+                    num_workers=num_workers,
+                    on_gpu=torch.cuda.is_available(),
+                    batch_size_train=batch_size,
+                    batch_size_val=batch_size,
+                    split=[1., 0.,0.]
+                )
+                datamodule.setup()
+            
+                rmse_list = []
+                intensity_list = []
+                
+                for i in datamodule.train_dataloader():
+                    with torch.no_grad():
+                        diff = model(i[0].flatten(start_dim=1).to(model.device))[:, 0] - i[1].to(model.device)
+                    rmse_list.append(torch.sqrt((diff**2).mean()))
+                    intensity_list.append(torch.sqrt((i[1].to(model.device)**2)[...,disabled_tof].mean()))
+                phase_rmse_list.append(torch.stack(rmse_list).mean())
+                phase_intensity_list.append(torch.stack(intensity_list).mean())
+            phase_rmse_list = torch.stack(phase_rmse_list)
+            phase_intensity_list = torch.stack(phase_intensity_list)
+            disabled_tof_rmse_list.append(phase_rmse_list)
+            disabled_tof_intensity_list.append(phase_intensity_list)
+        
+        disabled_tof_rmse_tens = torch.stack(disabled_tof_rmse_list).T
+        disabled_tof_intensity_tens = torch.stack(disabled_tof_intensity_list).T
+        
+        with open('outputs/disabled_tof_rmse_tens.pkl', 'wb') as handle:
+            pickle.dump(disabled_tof_rmse_tens.cpu(), handle)
+        with open('outputs/disabled_tof_intensity_tens.pkl', 'wb') as handle:
+            pickle.dump(disabled_tof_intensity_tens.cpu(), handle)
+        # Create a figure with 1 row and 2 columns for subplots
+        big_font=18
+        small_font=14
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Plot the RMSE tensor
+        rmse_image = axes[0].imshow(disabled_tof_rmse_tens.cpu().detach().numpy(), cmap="hot", interpolation='none', aspect='auto')
+        axes[0].set_xlabel("TOF position [#]", fontsize=big_font)
+        axes[0].set_ylabel("Time [steps]", fontsize=big_font)
+        axes[0].set_title("RMSE", fontsize=big_font)
+        axes[0].tick_params(axis='both', labelsize=small_font)
+        axes[0].set_xticks(range(0, 16, 2), [str(i) for i in range(1, 17, 2)], fontsize=small_font)
+        
+        # Add colorbar for the RMSE plot
+        cbar_rmse = plt.colorbar(rmse_image, ax=axes[0])
+        cbar_rmse.ax.tick_params(labelsize=small_font)
+        cbar_rmse.set_label("RMSE [arb.u.]", fontsize=big_font)
+        
+        # Plot the Intensity tensor
+        intensity_image = axes[1].imshow(disabled_tof_intensity_tens.cpu().detach().numpy(), cmap="hot", interpolation='none', aspect='auto')
+        axes[1].set_xlabel("TOF position [#]", fontsize=big_font)
+        axes[1].set_ylabel("Time [steps]", fontsize=big_font)
+        axes[1].set_title("Intensity", fontsize=big_font)
+        axes[1].tick_params(axis='both', labelsize=small_font)
+        axes[1].set_xticks(range(0, 16, 2), [str(i) for i in range(1, 17, 2)], fontsize=small_font)
+        
+        # Add colorbar for the Intensity plot
+        cbar_intensity = plt.colorbar(intensity_image, ax=axes[1])
+        cbar_intensity.ax.tick_params(labelsize=small_font)
+        cbar_intensity.set_label("Intensity [arb.u.]", fontsize=big_font)
+        
+        # Adjust layout
+        plt.tight_layout()
+        
     elif test_case == 5:
         model_dict = {
             "CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
