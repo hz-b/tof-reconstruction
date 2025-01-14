@@ -312,7 +312,7 @@ class Evaluator:
         plt.savefig(self.output_dir + "2_tof_failed.png")
 
     def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
-        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False])
+        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False, None])
         assert output is not None
         X, Y = output
         return X, Y
