@@ -568,7 +568,7 @@ class Evaluator:
                 evaluated_real_data = evaluated_real_data[...,padding:-padding]
         if output_transform is not None:
             real_images = output_transform(real_images)
-        return ((real_images-evaluated_real_data)**2).mean().item()
+        return torch.sqrt(((real_images-evaluated_real_data)**2).mean()).item()
 
     def eval_real_rec_comparison(self, model_label, sample_limit=None):
         results = (
