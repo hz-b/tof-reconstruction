@@ -517,16 +517,11 @@ class Evaluator:
         x_cut = x[mask]
         y_cut = y[mask]
     
-        # Baseline correction: Fit a baseline and subtract it
-        baseline_slope, baseline_intercept = np.polyfit(x_cut, y_cut, 1)
-        baseline = baseline_slope * x + baseline_intercept
-        y_corrected = y - baseline  # Subtract the baseline
+        slope, intercept = np.polyfit(x_cut, y_cut, 1)
+        x_plot = np.concatenate(([0], x))
     
-        # Fit the corrected data to a new linear model
-        slope, intercept = np.polyfit(x_cut, y_corrected[mask], 1)
-
         # Define fit line for visualization
-        y_fit = slope * x + intercept
+        y_fit = slope * x_plot# + intercept
     
         # Colors for scatter and fit line
         colors = plt.cm.tab10.colors
@@ -534,8 +529,10 @@ class Evaluator:
         line_color = colors[1]
     
         # Plotting
-        plt.scatter(x, y_corrected, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
-        plt.plot(x, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
+        plt.scatter(x, y-intercept, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
+        plt.plot(x_plot, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
+        plt.xlim(0, None)
+        
     
         plt.xlabel('Gas Monitor Detector [mJ]')
         plt.ylabel('Electron Intensity [arb.u.]')
@@ -708,8 +705,7 @@ if __name__ == "__main__":
              "$p=0$ CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
              "$p=1$ CAE-64": "outputs/tof_reconstructor/okht9r1i/checkpoints/",
              "$p=2$ CAE-64": "outputs/tof_reconstructor/748p94if/checkpoints/",
-             "CCNN": "outputs/tof_reconstructor/8c8o7h9j/checkpoints/",
-             "Circular padding": "outputs/tof_reconstructor/n79mjid1/checkpoints/",  
+             "CCNN": "outputs/tof_reconstructor/8c8o7h9j/checkpoints/", 
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
@@ -889,6 +885,8 @@ if __name__ == "__main__":
         
         # Adjust layout
         plt.tight_layout()
+        plt.savefig(self.output_dir + 'phase_tof_rmse.png', dpi=300, bbox_inches="tight")
+        plt.savefig(self.output_dir + 'phase_tof_rmse.pdf', dpi=300, bbox_inches="tight")
         
     elif test_case == 5:
         model_dict = {
