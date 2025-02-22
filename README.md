@@ -3,7 +3,7 @@
 
 A deep-learning based online denoising and reconstruction method for time of flight (TOF) detectors in PyTorch.
 
-![Randomly generated spectrogram with simulated detector image](images/spectrogram_detector_image.png)
+![Randomly generated spectrogram with simulated detector image](images/spectrogram_detector_image_3_12.png)
 
 ![Denoising and reconstruction of sample with two disabled TOF detectors](images/two_tofs_disabled.png)
 
@@ -26,3 +26,18 @@ e: Evaluator = Evaluator(model_dict, output_dir="outputs/", load_max=10)
 e.plot_reconstructing_tofs_comparison([7, 12], "General model")
 ```
 
+# Citation
+
+If you find this useful in your research, please consider citing:
+
+[Reconstructing Time-of-Flight Detector Values of Angular Streaking Using Machine Learning.](https://doi.org/10.48550/arXiv.2501.08966)
+
+    @misc{meier2025reconstructingtimeofflightdetectorvalues,
+      title={Reconstructing Time-of-Flight Detector Values of Angular Streaking Using Machine Learning}, 
+      author={David Meier and Wolfram Helml and Thorsten Otto and Bernhard Sick and Jens Viefhaus and Gregor Hartmann},
+      year={2025},
+      eprint={2501.08966},
+      archivePrefix={arXiv},
+      primaryClass={physics.data-an},
+      url={https://arxiv.org/abs/2501.08966}, 
+}
