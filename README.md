@@ -3,10 +3,10 @@
 
 A deep-learning based online denoising and reconstruction method for time of flight (TOF) detectors in PyTorch.
 
-A randomly generated spectrogram with simulated detector image:
+## A randomly generated spectrogram with simulated detector image
 ![Randomly generated spectrogram with simulated detector image](images/spectrogram_detector_image_3_12.png)
 
-Denoising and reconstruction of sample with two disabled TOF detectors:
+## Denoising and reconstruction of sample with two disabled TOF detectors
 ![Denoising and reconstruction of sample with two disabled TOF detectors](images/two_tofs_disabled.png)
 
 # Quick Start
