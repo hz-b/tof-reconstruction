@@ -312,7 +312,7 @@ class Evaluator:
         plt.savefig(self.output_dir + "2_tof_failed.png")
 
     def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
-        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False, None])
+        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False, False, None])
         assert output is not None
         X, Y = output
         return X, Y
@@ -735,7 +735,7 @@ if __name__ == "__main__":
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
 
         # 1. spectrogram detector image
-        e.plot_spectrogram_detector_image(3, 57)
+        e.plot_spectrogram_detector_image(3, 21)
         # simulated sample denoised+rec
         e.plot_reconstructing_tofs_comparison([7, 12], "Spec model")
         
