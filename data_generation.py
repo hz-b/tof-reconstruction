@@ -38,7 +38,8 @@ def Job(joblist):
     ELL_TILT = joblist[5]
     PULSE = joblist[6]
     HOT_ENABLED = joblist[8]
-    PHASE_STEP = joblist[9]
+    RANDOM_INTENSITY = joblist[9]
+    PHASE_STEP = joblist[10]
 
     PHASE_STEPS = 80  # 1st dimension of Y
     ENERGY_STEPS = 60  # 2nd dimension of X and Y
@@ -115,7 +116,10 @@ def Job(joblist):
             centery = int((np.random.rand()) * (ENERGY_STEPS - kick * 2) + kick)
             sigmax = np.random.rand() * sigmax_max
             sigmay = np.random.rand() * sigmay_max
-            intensity = np.random.rand()
+            if RANDOM_INTENSITY:
+                intensity = np.random.rand()
+            else:
+                intensity = 1.
             Y = add_gauss(Y, sigmax, sigmay, centerx, centery, intensity)
         if HOT_ENABLED:
             hot_ones=np.random.randint(0,high=15)
@@ -208,6 +212,7 @@ if __name__ == "__main__":
                     pulse,
                     init_seed,
                     hot_enabled,
+                    True,
                     phase_step
                 ]
             )
@@ -225,6 +230,7 @@ if __name__ == "__main__":
                         pulse,
                         init_seed + file_nr * max_peaks + peak,
                         hot_enabled,
+                        True,
                         None
                     ]
                 )
