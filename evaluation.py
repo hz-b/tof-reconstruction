@@ -284,9 +284,16 @@ class Evaluator:
                     else:
                         evaluation_list.append((i,j))
             for i, j in tqdm(evaluation_list):
-                output_matrix[i][j] = self.evaluate_missing_tofs(
-                        [i, j], model
+            
+                save_file = 'outputs/rmse_matrix_'+str(i)+'_'+str(j)+'.pt'
+                if os.path.exists(save_file):
+                    new_entry = torch.load(save_file)
+                else:
+                    new_entry = self.evaluate_missing_tofs(
+                            [i, j], model
                     )
+                    torch.save(new_entry, save_file)
+                output_matrix[i][j] = new_entry
             return output_matrix
 
     def one_missing_tof_rmse_tensor(self, model):
