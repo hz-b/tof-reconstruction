@@ -41,7 +41,7 @@ class TOFReconstructor(L.LightningModule):
         shrink_factor: str = "lin",
         learning_rate: float = 1e-4,
         optimizer: str = "adam_w",
-        last_activation=nn.Sigmoid(),
+        last_activation=None,
         lr_scheduler: str | None = "plateau",
         outputs_dir="outputs/",
         architecture="mlp",
@@ -61,11 +61,11 @@ class TOFReconstructor(L.LightningModule):
         self.padding_mode = padding_mode
         self.cae_hidden_dims = cae_hidden_dims
         if architecture == "cae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode, last_activation=last_activation)
         elif architecture == "unet":
             self.net = UNet2()
         elif architecture == "ccae":
-            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode)
+            self.net = TOFReconstructor.create_cae(dim_1_out=self.channels, dim_2_out=self.tof_count, ccnn=True, hidden_dims=cae_hidden_dims, padding_mode=self.padding_mode, last_activation=last_activation)
         else:
             self.net = TOFReconstructor.create_sequential(
                 self.channels * self.tof_count,
@@ -165,7 +165,7 @@ class TOFReconstructor(L.LightningModule):
         return nn.Sequential(*nn_layers)
     
     @staticmethod
-    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256, 512), ccnn=False, padding_mode=None):
+    def create_cae(dim_1_out, dim_2_out, hidden_dims=(32, 64, 128, 256, 512), ccnn=False, padding_mode=None, last_activation=None):
         if padding_mode is None:
             if ccnn:
                 padding_mode = 'same'
@@ -256,6 +256,8 @@ class TOFReconstructor(L.LightningModule):
                 nn.Upsample(size=(dim_1_out, dim_2_out), mode='bilinear', align_corners=False) 
             )
         )
+        if last_activation is not None:
+            modules.append(last_activation)
 
         return nn.Sequential(*modules)
 
@@ -583,7 +585,7 @@ if __name__ == "__main__":
     target_transform = Compose(
         [
             Reshape(),
-            PerImageNormalize(),
+            PerImageNormalize(0.1, 0.9),
             CircularPadding(padding),
         ]
     )
@@ -597,7 +599,7 @@ if __name__ == "__main__":
             PerImageNormalize(),
             DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
             #DisableSpecificTOFs([3,11]),
-            PerImageNormalize(),
+            PerImageNormalize(0.1, 0.9),
             CircularPadding(padding),
         ]
     )
@@ -621,7 +623,7 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None, last_activation=nn.Sigmoid()
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(

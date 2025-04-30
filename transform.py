@@ -214,8 +214,10 @@ class GaussianNoise(torch.nn.Module):
 
 
 class PerImageNormalize(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, minimum:float=None, maximum:float=None):
         super().__init__()
+        self.minimum = minimum
+        self.maximum = maximum
 
     def forward(self, img):
         img_min = img.min()
@@ -226,7 +228,10 @@ class PerImageNormalize(torch.nn.Module):
             else:
                 print("Warning: Image contains only similar elements and is not 0. Cannot normalize.", img_min.item())
                 return img
-        return (img - img_min) / (img.max() - img_min)
+        output = (img - img_min) / (img.max() - img_min)
+        if self.minimum is not None and self.maximum is not None:
+            return (output * (self.maximum - self.minimum) + self.minimum)
+        return output
 
 class CircularPadding(torch.nn.Module):
     def __init__(self, padding: int):
