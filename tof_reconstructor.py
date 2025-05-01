@@ -277,8 +277,8 @@ class TOFReconstructor(L.LightningModule):
         y_hat = self.net(x)
         if self.architecture != 'mlp':
             y_hat = y_hat.flatten(start_dim=1)
-        if self.minimum is not None and self.maximum is not None:
-            loss = nn.functional.mse_loss(self.denormalize(y_hat, self.minimum, self.maximum), self.denormalize(y, self.minimum, self.maximum))
+        if self.normalize_minimum is not None and self.normalize_maximum is not None:
+            loss = nn.functional.mse_loss(self.denormalize(y_hat, self.normalize_minimum, self.normalize_maximum), self.denormalize(y, self.normalize_minimum, self.normalize_maximum))
         else:
             loss = nn.functional.mse_loss(y_hat, y)
         self.log("train_loss", loss, prog_bar=True, logger=True)
@@ -311,8 +311,8 @@ class TOFReconstructor(L.LightningModule):
             self.validation_y_hat_plot_data = torch.cat(
                 [self.validation_y_hat_plot_data, y_hat[:append_len]]
             )
-        if self.minimum is not None and self.maximum is not None:
-            val_loss = nn.functional.mse_loss(self.denormalize(y_hat, self.minimum, self.maximum), self.denormalize(y, self.minimum, self.maximum))
+        if self.normalize_minimum is not None and self.normalize_maximum is not None:
+            val_loss = nn.functional.mse_loss(self.denormalize(y_hat, self.normalize_minimum, self.normalize_maximum), self.denormalize(y, self.normalize_minimum, self.normalize_maximum))
         else:
             val_loss = nn.functional.mse_loss(y_hat, y)
         self.log("val_loss", val_loss, prog_bar=True, logger=True)
