@@ -51,12 +51,16 @@ class TOFReconstructor(L.LightningModule):
         padding=0,
         batch_size: int = 32,
         cae_hidden_dims=[32, 64, 128, 256, 512],
-        padding_mode: str | None = None
+        padding_mode: str | None = None,
+        normalize_minimum = None,
+        normalize_maximum = None
     ):
         super(TOFReconstructor, self).__init__()
         self.save_hyperparameters(ignore=["last_activation"])
         self.channels = channels
         self.padding = padding
+        self.normalize_minimum = normalize_minimum
+        self.normalize_maximum = normalize_maximum
         self.tof_count = 16 + 2 * self.padding
         self.padding_mode = padding_mode
         self.cae_hidden_dims = cae_hidden_dims
@@ -260,6 +264,9 @@ class TOFReconstructor(L.LightningModule):
             modules.append(last_activation)
 
         return nn.Sequential(*modules)
+    @staticmethod
+    def denormalize(a, minimum, maximum):
+        return a * (maximum - minimum) + minimum
 
     def training_step(self, batch):
         x, y = batch
@@ -270,7 +277,10 @@ class TOFReconstructor(L.LightningModule):
         y_hat = self.net(x)
         if self.architecture != 'mlp':
             y_hat = y_hat.flatten(start_dim=1)
-        loss = nn.functional.mse_loss(y_hat, y)
+        if self.minimum is not None and self.maximum is not None:
+            loss = nn.functional.mse_loss(self.denormalize(y_hat, self.minimum, self.maximum), self.denormalize(y, self.minimum, self.maximum))
+        else:
+            loss = nn.functional.mse_loss(y_hat, y)
         self.log("train_loss", loss, prog_bar=True, logger=True)
         if self.train_y_plot_data.shape[0] < self.validation_plot_len:
             append_len = self.validation_plot_len - self.train_y_plot_data.shape[0]
@@ -301,7 +311,10 @@ class TOFReconstructor(L.LightningModule):
             self.validation_y_hat_plot_data = torch.cat(
                 [self.validation_y_hat_plot_data, y_hat[:append_len]]
             )
-        val_loss = nn.functional.mse_loss(y_hat, y)
+        if self.minimum is not None and self.maximum is not None:
+            val_loss = nn.functional.mse_loss(self.denormalize(y_hat, self.minimum, self.maximum), self.denormalize(y, self.minimum, self.maximum))
+        else:
+            val_loss = nn.functional.mse_loss(y_hat, y)
         self.log("val_loss", val_loss, prog_bar=True, logger=True)
         return val_loss
 
@@ -400,10 +413,10 @@ class TOFReconstructor(L.LightningModule):
         return output_copy
 
     @staticmethod
-    def evaluate_real_data(real_images, evaluation_function, input_transform=None):
+    def evaluate_real_data(real_images, evaluation_function, input_transform=None, normalize_minimum=None, normalize_maximum=None):
         real_image_transform = Compose(
             [
-                PerImageNormalize(),
+                PerImageNormalize(normalize_minimum, normalize_maximum),
             ]
         )
         real_images = torch.stack(
@@ -418,7 +431,7 @@ class TOFReconstructor(L.LightningModule):
         evaluated_real_data = evaluated_real_data.reshape(
             -1, real_images.shape[1], real_images.shape[2]
         )
-        evaluated_data_transform = Compose([PerImageNormalize()])
+        evaluated_data_transform = Compose([PerImageNormalize(normalize_minimum, normalize_maximum)])
         evaluated_real_data = torch.stack(
             [evaluated_data_transform(evaluated) for evaluated in evaluated_real_data]
         )
@@ -441,10 +454,10 @@ class TOFReconstructor(L.LightningModule):
         with torch.no_grad():
             self.real_images = self.real_images.to(self.device)
             real_images, evaluated_real_data = TOFReconstructor.evaluate_real_data(
-                self.real_images, self.forward, CircularPadding(self.padding)
+                self.real_images, self.forward, CircularPadding(self.padding), self.normalize_minimum, self.normalize_maximum
             )
             _, evaluated_real_data_2_tof = TOFReconstructor.evaluate_real_data(
-                self.real_images, self.forward, Compose([DisableSpecificTOFs([7,15]), CircularPadding(self.padding)])
+                self.real_images, self.forward, Compose([DisableSpecificTOFs([7,15]), CircularPadding(self.padding)]), self.normalize_minimum, self.normalize_maximum
                 )
             self.create_plot("real", real_images, evaluated_real_data, evaluated_real_data_2_tof, labels=["input", "prediction", "pred_-2_tof"])
 
@@ -581,11 +594,13 @@ if __name__ == "__main__":
     disabled_tofs_max = 3
     padding = 0
     batch_size = 1024
+    normalize_minimum = 0.1
+    normalize_maximum = 0.9
 
     target_transform = Compose(
         [
             Reshape(),
-            PerImageNormalize(0.1, 0.9),
+            PerImageNormalize(normalize_minimum, normalize_maximum),
             CircularPadding(padding),
         ]
     )
@@ -599,7 +614,7 @@ if __name__ == "__main__":
             PerImageNormalize(),
             DisableRandomTOFs(disabled_tofs_min, disabled_tofs_max, 0.5),
             #DisableSpecificTOFs([3,11]),
-            PerImageNormalize(0.1, 0.9),
+            PerImageNormalize(normalize_minimum, normalize_maximum),
             CircularPadding(padding),
         ]
     )
@@ -623,11 +638,11 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None, last_activation=nn.Sigmoid()
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None, last_activation=nn.Sigmoid(), normalize_minimum=normalize_minimum, normalize_maximum=normalize_maximum
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref3_general_cae_512_64_pad_0", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref3_general_cae_512_64_pad_0_sig_0.1_0.9", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
