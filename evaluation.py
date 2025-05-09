@@ -24,6 +24,7 @@ from transform import (
     ZeroTransform,
 )
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from torchvision.transforms import Compose
 from tqdm import trange, tqdm
 from data_generation import Job
@@ -89,7 +90,7 @@ class Evaluator:
             model_dict[key] = self.load_eval_model(Evaluator.load_first_ckpt_file(value))
             
         self.model_dict: dict = model_dict
-        self.model_dict["Mean model"] = MeanModel(16, device=device)
+        self.model_dict["Neighboring Mean"] = MeanModel(16, device=device)
 
         self.initial_input_transforms = [
             Reshape(),
@@ -113,6 +114,7 @@ class Evaluator:
                 target_transform=target_transform,
                 load_max=load_max,
             )
+            print(len(self.dataset))
     @staticmethod
     def load_first_ckpt_file(folder_path):
         # List all files in the folder
@@ -239,7 +241,7 @@ class Evaluator:
         self.dataset.input_transform = input_transform
         datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=8192, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
-        test_dataloader = datamodule.test_dataloader(max_len=100000)
+        test_dataloader = datamodule.test_dataloader(max_len=None)
         return test_dataloader
 
     def evaluate_missing_tofs(self, disabled_tofs, model):
@@ -268,7 +270,7 @@ class Evaluator:
                 if model.padding != 0:
                     y_hat = y_hat[:, :, model.padding:-model.padding]
                 y_hat = y_hat.flatten(start_dim=1)
-                test_loss = (torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
+                test_loss = torch.sqrt(torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
                 test_loss_list.append(test_loss)
             test_loss_tensor = torch.cat(test_loss_list)
             return test_loss_tensor.mean(), test_loss_tensor.flatten()
@@ -410,7 +412,7 @@ class Evaluator:
         )
 
     @staticmethod
-    def plot_detector_image_comparison(data_list, title_list, filename, output_dir):
+    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False):
         if len(data_list) > 3:
             if len(data_list) == 4:
                 columns = 2
@@ -421,7 +423,7 @@ class Evaluator:
             rows = 1
             columns = len(data_list)
         fig, ax = plt.subplots(
-            rows, columns, sharex=True, sharey=True, squeeze=False, figsize=(8, 3+rows*1)# (5+1, rows*(1.7+0.3)) #(8, 6)
+            rows, columns, sharex=False, sharey=True, squeeze=False, figsize=(8, 3+rows*1)# (5+1, rows*(1.7+0.3)) #(8, 6)
         )
         for i in range(len(data_list)):
             cur_row = i // columns
@@ -431,11 +433,34 @@ class Evaluator:
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
             out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i])
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+            if i != label_index and show_rmse:
+                diff = data_list[label_index] - data_list[i]
+                mse = torch.mean(diff ** 2)
+                rmse = torch.sqrt(mse)
+                ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
         for i in range(len(data_list), rows*columns):
             cur_row = i // columns
             cur_col = i % columns
             ax[cur_row, cur_col].set_visible(False)
         out.set_clim(vmin=0, vmax=1)
+        if show_braces:
+            # Add bracket for "General" (top two rows)
+            general_bracket = patches.FancyArrowPatch(
+                (0.05, 1.0), (0.05, 0.325),
+                arrowstyle='|-|', mutation_scale=4, linewidth=2
+            )
+            fig.add_artist(general_bracket)
+            fig.text(0.03, 0.675, 'General', va='center', ha='center', rotation=90)
+
+            # Add bracket for "Other" (bottom row)
+            other_bracket = patches.FancyArrowPatch(
+                (0.05, 0.325), (0.05, 0.0),
+                arrowstyle='|-|', mutation_scale=4, linewidth=2
+            )
+            fig.add_artist(other_bracket)
+            fig.text(0.03, 0.1625, 'Other', va='center', ha='center', rotation=90)
+
+
         plt.tight_layout()
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
         plt.savefig(output_dir + filename + ".png", dpi=300, bbox_inches="tight")
@@ -463,7 +488,8 @@ class Evaluator:
                     break
 
     def plot_reconstructing_tofs_comparison(
-        self, disabled_tofs, model_label, batch_id=1, sample_id=0
+        self, disabled_tofs, model_label, batch_id=1, sample_id=0, show_rmse=False,
+            label_index=None,
     ):
         input_transform = Compose(
             self.initial_input_transforms
@@ -475,9 +501,12 @@ class Evaluator:
         )
         padding = self.model_dict[model_label].padding
         test_dataloader = self.test_with_input_transform(input_transform)
+        print("req", batch_id, "len", len(test_dataloader))
+        #assert batch_id < len(test_dataloader)
         with torch.no_grad():
             i = 0
             for x, y in test_dataloader:
+                print("dataloader", x.shape)
                 i += 1
                 if i == batch_id:
                     z = (
@@ -486,14 +515,19 @@ class Evaluator:
                         .unsqueeze(0)
                     )
                     noisy_image = x[sample_id].cpu()
+                    print("noisy_image", noisy_image.min(), noisy_image.max())
                     if padding != 0:
                         noisy_image = noisy_image[:, padding:-padding]
                         z = z[:,:,padding:-padding]
+                    print("y[sample_id].cpu()", y[sample_id].cpu().min(), y[sample_id].cpu().max())
+                    print("z[0].cpu()", z[0].cpu().min(), z[0].cpu().max())
                     Evaluator.plot_detector_image_comparison(
                         [noisy_image, y[sample_id].cpu(), z[0].cpu()],
                         ["With noise", "Label", model_label],
                         "two_tofs_disabled",
                         self.output_dir,
+                        show_rmse=show_rmse,
+                        label_index=label_index,
                     )
                     break
 
@@ -546,7 +580,7 @@ class Evaluator:
         plt.savefig('outputs/saturation.png', bbox_inches='tight')
         plt.show()
 
-    def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None):
+    def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, tofs_to_evaluate=None):
         real_images = TOFReconstructor.get_real_data(
                 0, sample_limit, "datasets/210.hdf5"
         )
@@ -572,7 +606,9 @@ class Evaluator:
                 evaluated_real_data = evaluated_real_data[...,padding:-padding]
         if output_transform is not None:
             real_images = output_transform(real_images)
-        return torch.sqrt(((real_images-evaluated_real_data)**2).mean()).item()
+        tofs_to_evaluate = slice(None) if tofs_to_evaluate is None else tofs_to_evaluate
+        
+        return torch.sqrt(((real_images[:,tofs_to_evaluate]-evaluated_real_data[:, tofs_to_evaluate])**2).mean()).item()
 
     def eval_real_rec_comparison(self, model_label, sample_limit=None):
         results = (
@@ -590,7 +626,7 @@ class Evaluator:
         )
         
         
-    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_label=False, additional_transform_labels={"Wiener": Wiener()}):
+    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_label=False, show_rmse=False, label_index=0, additional_transform_labels={"Wiener": Wiener()}, show_braces=False):
         evaluated_images_list = []
         evaluated_plot_title_list = []
         if model_label_list is None:
@@ -641,6 +677,9 @@ class Evaluator:
             preset_label_list+evaluated_plot_title_list,
             "_".join(["real_image", add_to_label]),
             self.output_dir,
+            show_rmse=show_rmse,
+            label_index=label_index,
+            show_braces=show_braces
         )
     def persist_var(self, save_var, filename):
         with open(os.path.join(self.output_dir, filename), 'wb') as file:
@@ -687,7 +726,6 @@ if __name__ == "__main__":
     
         # 1.2 table RMSEs of specific models vs. General model vs. 'meaner'
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(model_dict.keys(), n=3)
         result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
         result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
         result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
@@ -716,7 +754,6 @@ if __name__ == "__main__":
              }
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(model_dict.keys(), n=3)
         result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
         result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
         result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
@@ -759,11 +796,10 @@ if __name__ == "__main__":
         
         # 2.2 real sample disabled + denoising
         e.plot_real_data(
-                    42, model_label_list=architecture_keys+spec_2_tof_keys+["Mean model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={})
+                    42, model_label_list=architecture_keys+spec_2_tof_keys+["Neighboring Mean"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={})
         
-        requested_keys = architecture_keys+["Mean model"]
+        requested_keys = architecture_keys+["Neighboring Mean"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
-        result_dict["1--3 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=3)
         result_dict["2 neighbors"] = e.evaluate_neigbors(requested_keys, 2, 2)
         result_dict["2 opposite"] = e.evaluate_opposite(requested_keys, 2, 2)
         result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(requested_keys, [7,12])
@@ -771,7 +807,7 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
 
-        requested_keys = ["CAE-64"] + bigger_tof_count_keys + ["Mean model"]
+        requested_keys = ["CAE-64"] + bigger_tof_count_keys + ["Neighboring Mean"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(4,6)}
         result_dict["1--4 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=4)
         result_dict["1--5 random"] = e.evaluate_1_n_disabled_tofs(requested_keys, n=5)
