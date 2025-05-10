@@ -928,8 +928,8 @@ if __name__ == "__main__":
         
         # Adjust layout
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'phase_tof_rmse.png', dpi=300, bbox_inches="tight")
-        plt.savefig(self.output_dir + 'phase_tof_rmse.pdf', dpi=300, bbox_inches="tight")
+        plt.savefig(e.output_dir + 'phase_tof_rmse.png', dpi=300, bbox_inches="tight")
+        plt.savefig(e.output_dir + 'phase_tof_rmse.pdf', dpi=300, bbox_inches="tight")
         
     elif test_case == 5:
         model_dict = {
