@@ -936,7 +936,7 @@ if __name__ == "__main__":
             "CAE-64": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
             "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
         }
-        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), dataset=None)
+        e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cpu'), dataset=None)
         print(e.eval_real_rec_comparison("CAE-64", None))
         print(e.eval_real_rec_comparison("CAE-512", None))
     elif test_case == 6:
