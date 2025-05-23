@@ -564,7 +564,7 @@ class UNet2(nn.Module):
         enc4 = self.enc4(enc3)
 
         # Bottleneck
-        bottleneck = self.bottleneck(enc4)
+        ##bottleneck = self.bottleneck(enc4)
 
         # Decoder
         ##dec4 = self.dec4(bottleneck)
@@ -573,7 +573,7 @@ class UNet2(nn.Module):
         #return x
         ##dec4 = torch.cat((self.prep_dec(dec4, enc4), enc4), dim=1)  # Skip connection
         #print("dec4", dec4.shape)
-        dec3 = self.dec3(bottleneck) ##dec4
+        dec3 = self.dec3(enc4) ##dec4
         #print("dec3_in", dec3.shape, "enc3_in", enc3.shape)
         dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
         #print("dec3", dec3.shape)
