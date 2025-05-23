@@ -508,11 +508,11 @@ class UNet2(nn.Module):
         self.enc4 = self.up(128, 256)
 
         # Bottleneck
-        self.bottleneck = self.up(256, 512)
+        ##self.bottleneck = self.up(256, 512)
 
         # Decoder
-        self.dec4 = self.down(512, 256)
-        self.dec3 = self.down(512, 128)
+        ##self.dec4 = self.down(512, 256)
+        self.dec3 = self.down(256, 128) ##(512, 128)
         self.dec2 = self.down(256, 64)
         self.dec1 = self.down(128, 32)
         self.dec0 = self.down(64, 1)
@@ -567,13 +567,13 @@ class UNet2(nn.Module):
         bottleneck = self.bottleneck(enc4)
 
         # Decoder
-        dec4 = self.dec4(bottleneck)
+        ##dec4 = self.dec4(bottleneck)
         #print("dec", dec4.shape)
         #print("enc", enc4.shape, "prep_dec", prep_dec4.shape)
         #return x
-        dec4 = torch.cat((self.prep_dec(dec4, enc4), enc4), dim=1)  # Skip connection
+        ##dec4 = torch.cat((self.prep_dec(dec4, enc4), enc4), dim=1)  # Skip connection
         #print("dec4", dec4.shape)
-        dec3 = self.dec3(dec4)
+        dec3 = self.dec3(bottleneck) ##dec4
         #print("dec3_in", dec3.shape, "enc3_in", enc3.shape)
         dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
         #print("dec3", dec3.shape)
@@ -594,8 +594,8 @@ if __name__ == "__main__":
     disabled_tofs_max = 3
     padding = 0
     batch_size = 1024
-    normalize_minimum = 0.1
-    normalize_maximum = 0.9
+    normalize_minimum = 0.0#0.1
+    normalize_maximum = 1.0#0.9
 
     target_transform = Compose(
         [
@@ -638,11 +638,11 @@ if __name__ == "__main__":
     )
     datamodule.prepare_data()
     model = TOFReconstructor(
-        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='cae', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None, last_activation=nn.Sigmoid(), normalize_minimum=normalize_minimum, normalize_maximum=normalize_maximum
+        disabled_tofs_min=disabled_tofs_min, disabled_tofs_max=disabled_tofs_max, padding=padding, architecture='unet', batch_size=batch_size, cae_hidden_dims=[32, 64, 128, 256, 512, 64], padding_mode=None, last_activation=nn.Sigmoid(), normalize_minimum=normalize_minimum, normalize_maximum=normalize_maximum
     )
     #model = TOFReconstructor.load_from_checkpoint("outputs/tof_reconstructor/i2z5a29w/checkpoints/epoch=49-step=75000000.ckpt")
     wandb_logger = WandbLogger(
-        name="ref3_general_cae_512_64_pad_0_sig_0.1_0.9", project="tof_reconstructor", save_dir=model.outputs_dir
+        name="ref3_general_unet", project="tof_reconstructor", save_dir=model.outputs_dir
     )
     datamodule.setup(stage="fit")
 
