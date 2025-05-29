@@ -9,6 +9,7 @@ from lightning.pytorch.loggers import WandbLogger
 from torch.optim.lr_scheduler import ExponentialLR, ReduceLROnPlateau
 from lightning.pytorch.callbacks import LearningRateMonitor
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 from ccnn import CConv2d, CConvTranspose2d
 
@@ -511,7 +512,7 @@ class UNet2(nn.Module):
         self.dec3 = self.down(256, 128)
         self.dec2 = self.down(256, 64)
         self.dec1 = self.down(128, 32)
-        self.dec0 = self.down(64, 1)
+        self.dec0 = self.down(64, 1, apply_activation=False)
 
     def up(self, in_channels, out_channels):
         return nn.Sequential(
@@ -519,26 +520,32 @@ class UNet2(nn.Module):
                 in_channels,
                 out_channels=out_channels,
                 kernel_size=3,
-                stride=1,
-                padding=2,
+                stride=2,
+                padding=1,
             ),
             nn.Mish(),
             nn.BatchNorm2d(out_channels),
         )
     
-    def down(self, in_channels, out_channels):
-         return nn.Sequential(
+    def down(self, in_channels, out_channels, apply_activation=True):
+            layers = [
                 nn.ConvTranspose2d(
                     in_channels,
                     out_channels,
                     kernel_size=3,
-                    stride=1,
-                    padding=2,
-                    output_padding=0,
-                ),
-                nn.Mish(),
-                nn.BatchNorm2d(out_channels),
-            )
+                    stride=2,
+                    padding=1,
+                    output_padding=1  # safer for shape matching
+                )
+            ]
+            
+            if apply_activation:
+                layers += [
+                    nn.Mish(),
+                    nn.BatchNorm2d(out_channels)
+                ]
+            
+            return nn.Sequential(*layers)
     def calc_start_end_dim(self, dim_original, dim_target):
         #print("orig", dim_original, "tar", dim_target)
         start = (dim_original - dim_target) // 2
@@ -547,26 +554,34 @@ class UNet2(nn.Module):
         return start, end
         
     def prep_dec(self, input_dec, input_enc):
-        dim2 = self.calc_start_end_dim(input_enc.shape[2], input_dec.shape[2])
-        dim3 = self.calc_start_end_dim(input_enc.shape[3], input_dec.shape[3])
-        output_dec = input_dec[:, :, dim2[0]:dim2[1], dim3[0]:dim3[1]]
-        return output_dec
+        target_size = input_enc.shape[2:]  # (H_dec, W_dec)
+        input_dec_resized = F.interpolate(input_dec, size=target_size, mode='bilinear', align_corners=False)
+        return input_dec_resized
 
     def forward(self, x):
         # Encoder
         enc1 = self.enc1(x)
+        #print("enc1",x.shape)
         enc2 = self.enc2(enc1)
+        #print("enc2",enc2.shape)
         enc3 = self.enc3(enc2)
+        #print("enc3",enc3.shape)
         enc4 = self.enc4(enc3)
+        #print("enc4",enc4.shape)
 
         # Decoder
-        dec3 = self.dec3(enc4) ##dec4
+        dec3 = self.dec3(enc4)
+        #print("dec3",dec3.shape)
         dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
+        #print("dec3_cat",dec3.shape)
         dec2 = self.dec2(dec3)
+        #print("dec2",dec2.shape)
         dec2 = torch.cat((self.prep_dec(dec2, enc2), enc2), dim=1)
+        #print("dec2_cat",dec2.shape)
         dec1 = self.dec1(dec2)
         dec1 = torch.cat((self.prep_dec(dec1, enc1), enc1), dim=1)
         dec0 = self.dec0(dec1)
+        #dec0 = self.prep_dec(dec0, x)
         return dec0
 
 
