@@ -1046,11 +1046,11 @@ if __name__ == "__main__":
         stack = torch.stack(stack).sum(dim=0)
         print(stack)
     elif test_case == 7:
-        model_dict = {"UNet": "outputs/tof_reconstructor/kxeyosu9/checkpoints/",
+        model_dict = {
              "CAE-256": "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
              "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
-              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",}
-        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=None)
+              "UNet": "outputs/tof_reconstructor/kxeyosu9/checkpoints/",}
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
         result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
         result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
@@ -1059,7 +1059,7 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
         
-        e.plot_real_data(42, model_label_list=model_dict.keys(), additional_transform_labels={}, add_to_label="unet")
+        e.plot_real_data(42, model_label_list=model_dict.keys(), show_label=True, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="unet_disabled_2_tofs", additional_transform_labels={})
     
     else:
         print("Test case not found")
