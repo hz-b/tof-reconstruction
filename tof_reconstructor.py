@@ -499,59 +499,49 @@ class TOFReconstructor(L.LightningModule):
         return optimizer
 
 class UNet2(nn.Module):
-    def __init__(self):
+    def __init__(self, encoder_channels = [1, 32, 64, 128, 256, 512]):
         super(UNet2, self).__init__()
-        
+
+        decoder_channels = encoder_channels[::-1]
+
         # Encoder
-        self.enc1 = self.up(1, 32)
-        self.enc2 = self.up(32, 64)
-        self.enc3 = self.up(64, 128)
-        self.enc4 = self.up(128, 256)
+        self.encoders = nn.ModuleList([
+            self.up(encoder_channels[i], encoder_channels[i+1])
+            for i in range(len(encoder_channels) - 1)
+        ])
 
         # Decoder
-        self.dec3 = self.down(256, 128)
-        self.dec2 = self.down(256, 64)
-        self.dec1 = self.down(128, 32)
-        self.dec0 = self.down(64, 1, apply_activation=False)
+        decoders = [(0,1)]
+        for i in range(len(decoder_channels) - 2):
+            decoders.append((i, i+2))
+        
+        self.decoders = nn.ModuleList([
+            self.down(decoder_channels[a], decoder_channels[b],
+                      apply_activation=(i != len(decoders) - 1))
+            for i, (a,b) in enumerate(decoders)
+        ])
 
     def up(self, in_channels, out_channels):
         return nn.Sequential(
-            nn.Conv2d(
-                in_channels,
-                out_channels=out_channels,
-                kernel_size=3,
-                stride=2,
-                padding=1,
-            ),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
             nn.Mish(),
             nn.BatchNorm2d(out_channels),
         )
-    
+
     def down(self, in_channels, out_channels, apply_activation=True):
-            layers = [
-                nn.ConvTranspose2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=3,
-                    stride=2,
-                    padding=1,
-                    output_padding=1  # safer for shape matching
-                )
-            ]
-            
-            if apply_activation:
-                layers += [
-                    nn.Mish(),
-                    nn.BatchNorm2d(out_channels)
-                ]
-            
-            return nn.Sequential(*layers)
-    def calc_start_end_dim(self, dim_original, dim_target):
-        #print("orig", dim_original, "tar", dim_target)
-        start = (dim_original - dim_target) // 2
-        end = start + dim_target
-        #print("start", start, "end", end)
-        return start, end
+        layers = [
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            )
+        ]
+        if apply_activation:
+            layers += [nn.Mish(), nn.BatchNorm2d(out_channels)]
+        return nn.Sequential(*layers)
         
     def prep_dec(self, input_dec, input_enc):
         target_size = input_enc.shape[2:]  # (H_dec, W_dec)
@@ -559,31 +549,22 @@ class UNet2(nn.Module):
         return input_dec_resized
 
     def forward(self, x):
-        # Encoder
-        enc1 = self.enc1(x)
-        #print("enc1",x.shape)
-        enc2 = self.enc2(enc1)
-        #print("enc2",enc2.shape)
-        enc3 = self.enc3(enc2)
-        #print("enc3",enc3.shape)
-        enc4 = self.enc4(enc3)
-        #print("enc4",enc4.shape)
+        x0 = x
+        enc_features = []
 
-        # Decoder
-        dec3 = self.dec3(enc4)
-        #print("dec3",dec3.shape)
-        dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
-        #print("dec3_cat",dec3.shape)
-        dec2 = self.dec2(dec3)
-        #print("dec2",dec2.shape)
-        dec2 = torch.cat((self.prep_dec(dec2, enc2), enc2), dim=1)
-        #print("dec2_cat",dec2.shape)
-        dec1 = self.dec1(dec2)
-        dec1 = torch.cat((self.prep_dec(dec1, enc1), enc1), dim=1)
-        dec0 = self.dec0(dec1)
-        #dec0 = self.prep_dec(dec0, x)
-        return dec0
+        # Encoder forward
+        for encoder in self.encoders:
+            x = encoder(x)
+            enc_features.append(x)
 
+        # Decoder forward
+        for i, decoder in enumerate(self.decoders):
+            x = decoder(x)
+            if i < len(self.decoders) - 1:
+                skip = enc_features[-(i + 2)]  # skip connections in reverse
+                x = torch.cat((self.prep_dec(x, skip), skip), dim=1)
+        x = self.prep_dec(x, x0)  # align final output with input
+        return x
 
 if __name__ == "__main__":
     disabled_tofs_min = 1
