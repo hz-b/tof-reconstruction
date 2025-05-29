@@ -507,12 +507,8 @@ class UNet2(nn.Module):
         self.enc3 = self.up(64, 128)
         self.enc4 = self.up(128, 256)
 
-        # Bottleneck
-        ##self.bottleneck = self.up(256, 512)
-
         # Decoder
-        ##self.dec4 = self.down(512, 256)
-        self.dec3 = self.down(256, 128) ##(512, 128)
+        self.dec3 = self.down(256, 128)
         self.dec2 = self.down(256, 64)
         self.dec1 = self.down(128, 32)
         self.dec0 = self.down(64, 1)
@@ -563,28 +559,13 @@ class UNet2(nn.Module):
         enc3 = self.enc3(enc2)
         enc4 = self.enc4(enc3)
 
-        # Bottleneck
-        ##bottleneck = self.bottleneck(enc4)
-
         # Decoder
-        ##dec4 = self.dec4(bottleneck)
-        #print("dec", dec4.shape)
-        #print("enc", enc4.shape, "prep_dec", prep_dec4.shape)
-        #return x
-        ##dec4 = torch.cat((self.prep_dec(dec4, enc4), enc4), dim=1)  # Skip connection
-        #print("dec4", dec4.shape)
         dec3 = self.dec3(enc4) ##dec4
-        #print("dec3_in", dec3.shape, "enc3_in", enc3.shape)
         dec3 = torch.cat((self.prep_dec(dec3, enc3), enc3), dim=1)
-        #print("dec3", dec3.shape)
-        #return x
-        #dec3 = torch.cat((dec3, enc3), dim=1)  # Skip connection
         dec2 = self.dec2(dec3)
         dec2 = torch.cat((self.prep_dec(dec2, enc2), enc2), dim=1)
-        #dec2 = torch.cat((dec2, enc2), dim=1)  # Skip connection
         dec1 = self.dec1(dec2)
         dec1 = torch.cat((self.prep_dec(dec1, enc1), enc1), dim=1)
-        #dec1 = torch.cat((dec1, enc1), dim=1)  # Skip connection
         dec0 = self.dec0(dec1)
         return dec0
 
