@@ -235,13 +235,13 @@ class Evaluator:
         output_string += r"""\end{"""+table_environment+r"""}"""
         return output_string
 
-    def test_with_input_transform(self, input_transform):
+    def test_with_input_transform(self, input_transform, batch_size=8192, max_len=None):
         workers = psutil.Process().cpu_affinity()
         num_workers = len(workers) if workers is not None else 0
         self.dataset.input_transform = input_transform
-        datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=8192, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
+        datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=batch_size, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
-        test_dataloader = datamodule.test_dataloader(max_len=None)
+        test_dataloader = datamodule.test_dataloader(max_len=max_len)
         return test_dataloader
 
     def evaluate_missing_tofs(self, disabled_tofs, model):
@@ -412,7 +412,7 @@ class Evaluator:
         )
 
     @staticmethod
-    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False):
+    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None):
         if len(data_list) > 3:
             if len(data_list) == 4:
                 columns = 2
@@ -438,6 +438,12 @@ class Evaluator:
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
                 ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
+            if i!= label_index and tof_rmse is not None:
+                diff = data_list[label_index] - data_list[i]
+                diff = diff[tof_rmse]
+                mse = torch.mean(diff ** 2)
+                rmse = torch.sqrt(mse)
+                ax[cur_row, cur_col].text(0.5, -0.5, f'Reconstruction RMSE: {rmse.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
         for i in range(len(data_list), rows*columns):
             cur_row = i // columns
             cur_col = i % columns
@@ -489,7 +495,7 @@ class Evaluator:
 
     def plot_reconstructing_tofs_comparison(
         self, disabled_tofs, model_label, batch_id=1, sample_id=0, show_rmse=False,
-            label_index=None,
+            label_index=None, tof_rmse:list=None
     ):
         input_transform = Compose(
             self.initial_input_transforms
@@ -501,12 +507,9 @@ class Evaluator:
         )
         padding = self.model_dict[model_label].padding
         test_dataloader = self.test_with_input_transform(input_transform)
-        print("req", batch_id, "len", len(test_dataloader))
-        #assert batch_id < len(test_dataloader)
         with torch.no_grad():
             i = 0
             for x, y in test_dataloader:
-                print("dataloader", x.shape)
                 i += 1
                 if i == batch_id:
                     z = (
@@ -515,12 +518,9 @@ class Evaluator:
                         .unsqueeze(0)
                     )
                     noisy_image = x[sample_id].cpu()
-                    print("noisy_image", noisy_image.min(), noisy_image.max())
                     if padding != 0:
                         noisy_image = noisy_image[:, padding:-padding]
                         z = z[:,:,padding:-padding]
-                    print("y[sample_id].cpu()", y[sample_id].cpu().min(), y[sample_id].cpu().max())
-                    print("z[0].cpu()", z[0].cpu().min(), z[0].cpu().max())
                     Evaluator.plot_detector_image_comparison(
                         [noisy_image, y[sample_id].cpu(), z[0].cpu()],
                         ["With noise", "Label", model_label],
@@ -528,8 +528,103 @@ class Evaluator:
                         self.output_dir,
                         show_rmse=show_rmse,
                         label_index=label_index,
+                        tof_rmse=tof_rmse
                     )
                     break
+                    
+    def plot_single_tof_reconstructing(
+        self, model_label, batch_id=1, sample_id=0
+    ):
+        noisy_rmse_list = []
+        model_rmse_list = []
+        rec_noisy_rmse_list = []
+        rec_model_rmse_list = []
+        for disabled_tof in range(16):
+            input_transform = Compose(
+                self.initial_input_transforms
+                + [
+                    DisableSpecificTOFs(disabled_tofs=[disabled_tof]),
+                    PerImageNormalize(),
+                    CircularPadding(self.model_dict[model_label].padding),
+                ]
+            )
+            padding = self.model_dict[model_label].padding
+            test_dataloader = self.test_with_input_transform(input_transform)
+            with torch.no_grad():
+                i = 0
+                for x, y in test_dataloader:
+                    i += 1
+                    if i == batch_id:
+                        z = (
+                            self.evaluate_model(x[sample_id].unsqueeze(0).flatten(start_dim=1).to(self.device), model_label)[0]
+                            .reshape(-1, 16 + 2*padding)
+                            .unsqueeze(0)
+                        )
+                        noisy_image = x[sample_id].cpu()
+                        if padding != 0:
+                            noisy_image = noisy_image[:, padding:-padding]
+                            z = z[:,:,padding:-padding]
+                            
+                        label = y[sample_id].cpu()
+                        model_output = z[0].cpu()
+                        noisy_rmse_list.append(self.rmse(noisy_image, label))
+                        model_rmse_list.append(self.rmse(model_output, label))
+                        rec_noisy_rmse_list.append(self.rmse(noisy_image[disabled_tof], label[disabled_tof]))
+                        rec_model_rmse_list.append(self.rmse(model_output[disabled_tof], label[disabled_tof]))
+                        break
+        return noisy_rmse_list, model_rmse_list, rec_noisy_rmse_list, rec_model_rmse_list
+        
+    def plot_single_tof_reconstructing_batched(
+        self, model_label, max_len=10
+    ):
+        noisy_rmse_list = []
+        model_rmse_list = []
+        rec_noisy_rmse_list = []
+        rec_model_rmse_list = []
+        for disabled_tof in range(16):
+            input_transform = Compose(
+                self.initial_input_transforms
+                + [
+                    DisableSpecificTOFs(disabled_tofs=[disabled_tof]),
+                    PerImageNormalize(),
+                    CircularPadding(self.model_dict[model_label].padding),
+                ]
+            )
+            padding = self.model_dict[model_label].padding
+            test_dataloader = self.test_with_input_transform(input_transform)
+            with torch.no_grad():
+                noisy_image = []
+                model_output = []
+                label = []
+                for x, y in test_dataloader:
+                    z = (
+                        self.evaluate_model(x.to(self.device).flatten(start_dim=1), model_label)
+                        .reshape(-1, 60, 16 + 2*padding)
+                    )
+                    noisy_image.append(x)
+                    if padding != 0:
+                        noisy_image = noisy_image[:, padding:-padding]
+                        z = z[:,:,padding:-padding]
+                        
+                    label.append(y)
+                    model_output.append(z.cpu())
+                label = torch.vstack(label)
+                noisy_image = torch.vstack(noisy_image)
+                model_output = torch.vstack(model_output)
+                print(label.shape)
+                
+                noisy_rmse_list.append(self.rmse(noisy_image, label).item())
+                model_rmse_list.append(self.rmse(model_output, label).item())
+                rec_noisy_rmse_list.append(self.rmse(noisy_image[disabled_tof], label[disabled_tof]).item())
+                rec_model_rmse_list.append(self.rmse(model_output[disabled_tof], label[disabled_tof]).item())
+
+        return noisy_rmse_list, model_rmse_list, rec_noisy_rmse_list, rec_model_rmse_list
+        
+    @staticmethod
+    def rmse(a, b):
+        diff = a - b
+        mse = torch.mean(diff**2)
+        return torch.sqrt(mse)
 
     def evaluate_model(self, data, model_label):
         assert self.model_dict[model_label] is not None
@@ -950,5 +1045,21 @@ if __name__ == "__main__":
             stack.append(i[1].sum(dim=0).sum(dim=0))
         stack = torch.stack(stack).sum(dim=0)
         print(stack)
+    elif test_case == 7:
+        model_dict = {"UNet": "outputs/tof_reconstructor/kxeyosu9/checkpoints/",
+             "CAE-256": "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
+             "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
+              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",}
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=None)
+        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
+        result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
+        result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
+        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
+        e.persist_var(result_dict, 'unet.pkl')
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+        
+        e.plot_real_data(42, model_label_list=model_dict.keys(), additional_transform_labels={}, add_to_label="unet")
+    
     else:
         print("Test case not found")
