@@ -398,14 +398,14 @@ class Evaluator:
 
 
     @staticmethod
-    def detector_image_ax(ax, data, title):
+    def detector_image_ax(ax, data, title, aspect_auto=True):
         ax.set_xlabel("TOF position [#]")
         ax.set_title(title)
         ax.set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)])
         ax.set_yticks(ticks=list(range(0, 70, 10))+[60], labels=list(range(280, 350, 10))+ [340])
         return ax.imshow(
             data,
-            aspect=data.shape[1] / data.shape[0],
+            aspect='auto' if aspect_auto else data.shape[1] / data.shape[0],
             interpolation="none",
             cmap="hot",
             origin="lower",
@@ -423,7 +423,7 @@ class Evaluator:
             rows = 1
             columns = len(data_list)
         fig, ax = plt.subplots(
-            rows, columns, sharex=False, sharey=True, squeeze=False, figsize=(8, 3+rows*1)# (5+1, rows*(1.7+0.3)) #(8, 6)
+            rows, columns, sharex=False, sharey=True, squeeze=False, figsize=(8, 3+rows*1.2), constrained_layout=True
         )
         for i in range(len(data_list)):
             cur_row = i // columns
@@ -431,7 +431,7 @@ class Evaluator:
             if cur_col == 0:
                 ax[cur_row, cur_col].set_ylabel("Kinetic Energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i])
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i], rows!=1)
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
             if i != label_index and show_rmse:
                 diff = data_list[label_index] - data_list[i]
@@ -452,19 +452,19 @@ class Evaluator:
         if show_braces:
             # Add bracket for "General" (top two rows)
             general_bracket = patches.FancyArrowPatch(
-                (0.05, 1.0), (0.05, 0.325),
+                (0.00, 1.0), (0.00, 0.25),
                 arrowstyle='|-|', mutation_scale=4, linewidth=2
             )
             fig.add_artist(general_bracket)
-            fig.text(0.03, 0.675, 'General', va='center', ha='center', rotation=90)
+            fig.text(-0.02, 0.675, 'General', va='center', ha='center', rotation=90)
 
             # Add bracket for "Other" (bottom row)
             other_bracket = patches.FancyArrowPatch(
-                (0.05, 0.325), (0.05, 0.0),
+                (0.00, 0.25), (0.00, 0.0),
                 arrowstyle='|-|', mutation_scale=4, linewidth=2
             )
             fig.add_artist(other_bracket)
-            fig.text(0.03, 0.1625, 'Other', va='center', ha='center', rotation=90)
+            fig.text(-0.02, 0.1625, 'Other', va='center', ha='center', rotation=90)
 
 
         plt.tight_layout()
@@ -762,8 +762,9 @@ class Evaluator:
         preset_list = [real_image]
         preset_label_list = ["Real data"]
         if show_label:
-            preset_list.append(real_label_image)
-            preset_label_list.append("Label")
+            if input_transform is not None:
+                preset_list.append(real_label_image)
+                preset_label_list.append("Label")
             for key, entry in additional_transform_labels.items():
                 preset_list.append(entry(real_label_image))
                 preset_label_list.append(key)
@@ -864,10 +865,12 @@ if __name__ == "__main__":
              "CAE-128": "outputs/tof_reconstructor/gvd9sv1x/checkpoints/",
              "CAE-256": "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
              "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
+             "CAE-1024": "outputs/tof_reconstructor/1fgqdg17/checkpoints/",
+             "UNet-512": "outputs/tof_reconstructor/n6od82ls/checkpoints/",
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
              "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
-             "1-4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
-             "1-5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
+             "4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
+             "5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
              "AdamW": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
              "Adam": "outputs/tof_reconstructor/7w5lfbqf/checkpoints/",
              }
@@ -884,14 +887,14 @@ if __name__ == "__main__":
         # 2. real sample
         # 2.1 real sample denoising
         keys = list(model_dict.keys())
-        architecture_keys = keys[:5]
-        spec_2_tof_keys = keys[5:7]
-        bigger_tof_count_keys = keys[7:9]
-        e.plot_real_data(42, model_label_list=architecture_keys, additional_transform_labels={})
+        architecture_keys = keys[:7]
+        spec_2_tof_keys = keys[7:9]
+        bigger_tof_count_keys = keys[9:11]
+        e.plot_real_data(42, model_label_list=architecture_keys, additional_transform_labels={"Wiener": Wiener()}, show_label=True)
         
         # 2.2 real sample disabled + denoising
         e.plot_real_data(
-                    42, model_label_list=architecture_keys+spec_2_tof_keys+["Neighboring Mean"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={})
+            42, model_label_list=architecture_keys+spec_2_tof_keys+["Neighboring Mean"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={}, show_label=True, show_braces=True)
         
         requested_keys = architecture_keys+["Neighboring Mean"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
@@ -1045,21 +1048,6 @@ if __name__ == "__main__":
             stack.append(i[1].sum(dim=0).sum(dim=0))
         stack = torch.stack(stack).sum(dim=0)
         print(stack)
-    elif test_case == 7:
-        model_dict = {
-             "CAE-256": "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
-             "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
-              "UNet": "outputs/tof_reconstructor/kxeyosu9/checkpoints/",}
-        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
-        result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
-        result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
-        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
-        e.persist_var(result_dict, 'unet.pkl')
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
-        
-        e.plot_real_data(42, model_label_list=model_dict.keys(), show_label=True, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="unet_disabled_2_tofs", additional_transform_labels={})
     
     else:
         print("Test case not found")
