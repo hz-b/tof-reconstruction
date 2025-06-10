@@ -371,7 +371,7 @@ class Evaluator:
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
         line1, = ax1.plot(x, rmse, color=color1, label='RMSE')  # Set zorder for line1
         ax1.set_xlabel('TOF position [#]', fontsize=20)
-        ax1.set_ylabel('RMSE [arb.u.]', color=color1, fontsize=20)
+        ax1.set_ylabel('RMSE', color=color1, fontsize=20)
         plt.yticks(fontsize=20)
         ax1.tick_params(axis='y', labelcolor=color1)
 
@@ -456,7 +456,7 @@ class Evaluator:
                 arrowstyle='|-|', mutation_scale=4, linewidth=2
             )
             fig.add_artist(general_bracket)
-            fig.text(-0.02, 0.675, 'General', va='center', ha='center', rotation=90)
+            fig.text(-0.02, 0.62, 'General', va='center', ha='center', rotation=90)
 
             # Add bracket for "Other" (bottom row)
             other_bracket = patches.FancyArrowPatch(
@@ -464,7 +464,7 @@ class Evaluator:
                 arrowstyle='|-|', mutation_scale=4, linewidth=2
             )
             fig.add_artist(other_bracket)
-            fig.text(-0.02, 0.1625, 'Other', va='center', ha='center', rotation=90)
+            fig.text(-0.02, 0.125, 'Other', va='center', ha='center', rotation=90)
 
 
         plt.tight_layout()
@@ -1009,7 +1009,7 @@ if __name__ == "__main__":
         # Add colorbar for the RMSE plot
         cbar_rmse = plt.colorbar(rmse_image, ax=axes[0])
         cbar_rmse.ax.tick_params(labelsize=small_font)
-        cbar_rmse.set_label("RMSE [arb.u.]", fontsize=big_font)
+        cbar_rmse.set_label("RMSE", fontsize=big_font)
         
         # Plot the Intensity tensor
         intensity_image = axes[1].imshow(disabled_tof_intensity_tens.cpu().detach().numpy(), cmap="hot", interpolation='none', aspect='auto')
