@@ -285,6 +285,14 @@ class Evaluator:
                         continue
                     else:
                         evaluation_list.append((i,j))
+
+            if job_id is not None and total_job_count is not None:
+                assert job_id < total_job_count
+                normal_length = len(evaluation_list) // total_job_count
+                last_length = len(evaluation_list) - normal_length * (total_job_count - 1)
+                length = normal_length if job_id != total_job_count - 1 else last_length
+                evaluation_list = evaluation_list[job_id:job_id+length]
+            
             for i, j in tqdm(evaluation_list):
             
                 save_file = 'outputs/rmse_matrix_'+str(i)+'_'+str(j)+'.pt'
@@ -802,8 +810,14 @@ def eval_model(model, data):
         return model(data)
 
 if __name__ == "__main__":
+    job_id = None
+    total_job_count = None
+    # first argument is test_case, second and third (if defined) are job_id and total_job_count to divide the matrix calculation
     if len(sys.argv) > 1:
         test_case = int(sys.argv[1])
+        if len(sys.argv) > 2:
+            job_id = int(sys.argv[2])
+            total_job_count = int(sys.argv[3])
     else:
         test_case = 0
 
