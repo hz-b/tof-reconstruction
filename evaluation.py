@@ -854,7 +854,7 @@ if __name__ == "__main__":
             e.plot_rmse_tensor(rmse_tensor.cpu())
     
         # 1.4 heatmap plot rmse 2 TOFs missing
-        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"])
+        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"], job_id, total_job_count)
         if os.path.exists(rmse_tensor_file):
             with open(os.path.join(self.output_dir, rmse_tensor_file), 'wb') as file:
                 rmse_tensor = pickle.load(file)
