@@ -275,7 +275,8 @@ class Evaluator:
             test_loss_tensor = torch.cat(test_loss_list)
             return test_loss_tensor.mean(), test_loss_tensor.flatten()
 
-    def two_missing_tofs_rmse_matrix(self, model):
+    def two_missing_tofs_rmse_matrix(self, model, job_id=None, total_job_count=None):
+        save_file = lambda x,y: 'outputs/rmse_matrix_'+str(x)+'_'+str(y)+'.pt'
         with torch.no_grad():
             output_matrix = torch.full((16, 16), 0., device=model.device)
             evaluation_list = []
@@ -285,6 +286,7 @@ class Evaluator:
                         continue
                     else:
                         evaluation_list.append((i,j))
+            full_evaluation_list = evaluation_list.copy()
 
             if job_id is not None and total_job_count is not None:
                 assert job_id < total_job_count
@@ -294,17 +296,17 @@ class Evaluator:
                 evaluation_list = evaluation_list[job_id:job_id+length]
             
             for i, j in tqdm(evaluation_list):
-            
-                save_file = 'outputs/rmse_matrix_'+str(i)+'_'+str(j)+'.pt'
-                if os.path.exists(save_file):
-                    new_entry = torch.load(save_file)
-                else:
-                    new_entry = self.evaluate_missing_tofs(
-                            [i, j], model
-                    )
-                    torch.save(new_entry, save_file)
-                output_matrix[i][j] = new_entry
-            return output_matrix
+                new_entry = self.evaluate_missing_tofs(
+                        [i, j], model
+                )
+                torch.save(new_entry, save_file(i,j))
+            if all([os.path.exists(save_file(i,j)) for i, j in full_evaluation_list]):
+                print([os.path.exists(save_file(i,j)) for i, j in full_evaluation_list])
+                for i,j in full_evaluation_list:
+                    output_matrix[i][j] = torch.load(save_file(i,j))
+                return output_matrix
+    
+            return None
 
     def one_missing_tof_rmse_tensor(self, model):
         with torch.no_grad():
@@ -812,6 +814,8 @@ def eval_model(model, data):
 if __name__ == "__main__":
     job_id = None
     total_job_count = None
+    rmse_tensor_file = 'rmse_tensor.pkl'
+    rmse_tensor = None
     # first argument is test_case, second and third (if defined) are job_id and total_job_count to divide the matrix calculation
     if len(sys.argv) > 1:
         test_case = int(sys.argv[1])
@@ -827,31 +831,37 @@ if __name__ == "__main__":
              "3TOF model": "outputs/tof_reconstructor/d0ccdqnp/checkpoints",
              "General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
-        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
-        e.measure_time("General model")
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
-        e.persist_var(result_dict, 'denoising.pkl')
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
-    
-        # 1.2 table RMSEs of specific models vs. General model vs. 'meaner'
-        result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
-        result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
-        result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
-        result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
-        e.persist_var(result_dict, 'rec_comp.pkl')
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
-        print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
-    
-        # 1.3 heatmap plot rmse 1 TOF missing
-        rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
-        e.persist_var(rmse_tensor, 'rmse_tensor.pkl')
-        e.plot_rmse_tensor(rmse_tensor.cpu())
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=100)
+        if job_id is None or job_id == 0:
+            e.measure_time("General model")
+            result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
+            e.persist_var(result_dict, 'denoising.pkl')
+            print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+            print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+        
+            # 1.2 table RMSEs of specific models vs. General model vs. 'meaner'
+            result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1,4)}
+            result_dict["2 neighbors"] = e.evaluate_neigbors(model_dict.keys(), 2, 2)
+            result_dict["2 opposite"] = e.evaluate_opposite(model_dict.keys(), 2, 2)
+            result_dict["\\#8,\\#13 position"] = e.evaluate_specific_disabled_tofs(model_dict.keys(), [7,12])
+            e.persist_var(result_dict, 'rec_comp.pkl')
+            print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
+            print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
+        
+            # 1.3 heatmap plot rmse 1 TOF missing
+            rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
+            e.persist_var(rmse_tensor, rmse_tensor_file)
+            e.plot_rmse_tensor(rmse_tensor.cpu())
     
         # 1.4 heatmap plot rmse 2 TOFs missing
         mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"])
-        e.persist_var(mse_matrix, 'rmse_matrix.pkl')
-        e.plot_rmse_matrix(mse_matrix.cpu(), rmse_tensor.cpu())
+        if os.path.exists(rmse_tensor_file):
+            with open(os.path.join(self.output_dir, rmse_tensor_file), 'wb') as file:
+                rmse_tensor = pickle.load(file)
+            
+        if mse_matrix is not None and rmse_tensor is not None:
+            e.persist_var(mse_matrix, 'rmse_matrix.pkl')
+            e.plot_rmse_matrix(mse_matrix.cpu(), rmse_tensor.cpu())
     
     elif test_case == 1:
         # Appendix
