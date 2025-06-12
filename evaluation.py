@@ -831,7 +831,7 @@ if __name__ == "__main__":
              "3TOF model": "outputs/tof_reconstructor/d0ccdqnp/checkpoints",
              "General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
-        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=100)
+        e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         if job_id is None or job_id == 0:
             e.measure_time("General model")
             result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
