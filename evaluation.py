@@ -293,7 +293,7 @@ class Evaluator:
                 normal_length = len(evaluation_list) // total_job_count
                 last_length = len(evaluation_list) - normal_length * (total_job_count - 1)
                 length = normal_length if job_id != total_job_count - 1 else last_length
-                evaluation_list = evaluation_list[job_id:job_id+length]
+                evaluation_list = evaluation_list[job_id*length:job_id*length+length]
             
             for i, j in tqdm(evaluation_list):
                 new_entry = self.evaluate_missing_tofs(
@@ -301,7 +301,6 @@ class Evaluator:
                 )
                 torch.save(new_entry, save_file(i,j))
             if all([os.path.exists(save_file(i,j)) for i, j in full_evaluation_list]):
-                print([os.path.exists(save_file(i,j)) for i, j in full_evaluation_list])
                 for i,j in full_evaluation_list:
                     output_matrix[i][j] = torch.load(save_file(i,j))
                 return output_matrix
@@ -855,10 +854,10 @@ if __name__ == "__main__":
     
         # 1.4 heatmap plot rmse 2 TOFs missing
         mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"], job_id, total_job_count)
-        if os.path.exists(rmse_tensor_file):
-            with open(os.path.join(self.output_dir, rmse_tensor_file), 'wb') as file:
+        if os.path.exists(os.path.join(e.output_dir, rmse_tensor_file)):
+            with open(os.path.join(e.output_dir, rmse_tensor_file), 'rb') as file:
                 rmse_tensor = pickle.load(file)
-            
+
         if mse_matrix is not None and rmse_tensor is not None:
             e.persist_var(mse_matrix, 'rmse_matrix.pkl')
             e.plot_rmse_matrix(mse_matrix.cpu(), rmse_tensor.cpu())
