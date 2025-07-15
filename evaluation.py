@@ -730,7 +730,7 @@ class Evaluator:
         )
         
         
-    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_label=False, show_rmse=False, label_index=0, additional_transform_labels={"Wiener": Wiener()}, show_braces=False):
+    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_real_data=True, show_label=False, show_rmse=False, label_index=0, additional_transform_labels={"Wiener": Wiener()}, show_braces=False):
         evaluated_images_list = []
         evaluated_plot_title_list = []
         if model_label_list is None:
@@ -768,8 +768,13 @@ class Evaluator:
             add_to_label = "_" + add_to_label
         add_to_label = str(sample_id) + add_to_label
 
-        preset_list = [real_image]
-        preset_label_list = ["Real data"]
+        if show_real_data:
+            preset_list = [real_image]
+            preset_label_list = ["Real data"]
+        else:
+            preset_list = []
+            preset_label_list = []
+
         if show_label:
             if input_transform is not None:
                 preset_list.append(real_label_image)
