@@ -911,7 +911,7 @@ class Evaluator:
         _ = torch.mm(a, b)
         torch.cuda.synchronize()
     
-    def eval_model_simulation(self, model_label, input_transform=[]):
+    def eval_model_simulation(self, model_label, input_transform=[], limit=None):
         
         ds = self.test_with_input_transform(Compose(self.initial_input_transforms+input_transform))
         model = self.model_dict[model_label]
@@ -932,6 +932,8 @@ class Evaluator:
             else:
                 noisy = i[0].reshape(i[0].shape[0], -1)
             label = i[1]
+            if limit is not None and len(time_list) > limit:
+                break
             for j in trange(noisy.shape[0], leave=False):
                 start_time = time.time()
                 with torch.no_grad():
@@ -944,6 +946,8 @@ class Evaluator:
                 time_list.append(elapsed_time)
                 squared_error = (output[0]-label[j])**2
                 squared_error_list.append(squared_error[0])
+                if limit is not None and len(time_list) > limit:
+                    break
         
         squared_error_tensor = torch.stack(squared_error_list)
         time_tensor = torch.tensor(time_list)
@@ -1292,9 +1296,9 @@ if __name__ == "__main__":
         results_dict = {}
         
         for model_label in ["General model", "Pacman"]:
-            results_dict[model_label] = e.eval_model_simulation(model_label)
+            results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000)
 
-        e.persist_var(results_dict)
+        e.persist_var(results_dict, "pacman.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
     else:
         print("Test case not found")
