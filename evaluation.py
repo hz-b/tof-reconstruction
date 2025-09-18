@@ -1277,7 +1277,7 @@ if __name__ == "__main__":
                                   "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
                                  }, device=torch.device('cuda'), output_dir="outputs/", load_max=10000, pac_man=True)
         for i,its_override in enumerate([10, None, 100]):
-            X, Y, out = pacman_spectrogram_simulation(pm, 3, 21, its_override=its_override)
+            X, Y, out = Evaluator.pacman_spectrogram_simulation(pm, 3, 21, its_override=its_override)
             Evaluator.save_spectrogram_detector_image_plot(out[0][0], out[1][0], output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
         for i in range(5):
             e.plot_real_data(42+i, model_label_list=["General model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
