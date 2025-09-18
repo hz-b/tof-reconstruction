@@ -468,7 +468,7 @@ class Evaluator:
         X, Y = Evaluator.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
-        out = pm(torch.tensor(X).unsqueeze(0), its_override=its_override)
+        out = pacman(torch.tensor(X).unsqueeze(0), its_override=its_override)
         return X, Y, out
 
 
