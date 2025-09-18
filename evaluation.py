@@ -31,6 +31,7 @@ from data_generation import Job
 from scipy.stats import ttest_rel
 import numpy as np
 import pickle
+from pacman import PacMan
 
 
 torch.manual_seed(42)
@@ -75,7 +76,6 @@ class MeanModel(torch.nn.Module):
                 break
         return left, right
 
-
 class Evaluator:
     def __init__(
         self,
@@ -83,7 +83,8 @@ class Evaluator:
         device: torch.device = torch.get_default_device(),
         output_dir: str = "outputs/",
         dataset = "datasets/sigmaxy_7_peaks_0_20_hot_15/shuffled_*.h5",
-        load_max=None
+        load_max=None,
+        pac_man=False
     ):
         self.device = device
         for key, value in model_dict.items():
@@ -91,6 +92,8 @@ class Evaluator:
             
         self.model_dict: dict = model_dict
         self.model_dict["Neighboring Mean"] = MeanModel(16, device=device)
+        if pac_man:
+            self.model_dict["Pacman"] = PacMan()
 
         self.initial_input_transforms = [
             Reshape(),
@@ -239,6 +242,7 @@ class Evaluator:
         workers = psutil.Process().cpu_affinity()
         num_workers = len(workers) if workers is not None else 0
         self.dataset.input_transform = input_transform
+        print(self.device.type)
         datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=batch_size, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
         test_dataloader = datamodule.test_dataloader(max_len=max_len)
@@ -329,38 +333,78 @@ class Evaluator:
         plt.ylabel("TOF position [#]", fontsize=20)
         plt.savefig(self.output_dir + "2_tof_failed.png")
 
-    def retrieve_spectrogram_detector(self, kick_min=0, kick_max=100, peaks=5, seed=42):
+    @staticmethod
+    def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42):
         output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False, False, None])
         assert output is not None
         X, Y = output
         return X, Y
 
+    @staticmethod
+    def spec_detector_image_ax(ax, X, fontsize, residual=False):
+        out = ax.imshow(np.array(X), aspect=X.shape[1] / X.shape[0], cmap='hot', interpolation="none", origin="lower")
+        ax.set_ylabel("Kinetic Energy [eV]",fontsize=fontsize)
+        ax.set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)],fontsize=20)
+        ax.set_xlabel("TOF position [#]",fontsize=fontsize)
+        title = "Residual image" if residual else "Detector image"
+        ax.set_title(title,fontsize=fontsize)
+        ax.tick_params(labelsize=fontsize)
+        ax.set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+        ax.spines[['right', 'top']].set_visible(False)
+        out.set_clim(vmin=0, vmax=1)
+        return out
+
+    @staticmethod
+    def save_spectrogram_detector_image_plot(X, Y, output_path, Z=None):
+        import matplotlib.pyplot as plt
+        import numpy as np
+    
+        fontsize = 20
+    
+        # Determine how many plots we need
+        num_images = 2 if Z is None else 3
+    
+        # Create figure and axes
+        fig, ax = plt.subplots(1, num_images, figsize=(5 * num_images, 4), gridspec_kw={'wspace': 0.3})
+    
+        # If only one image, ax is not a list – force it into a list
+        if num_images == 1:
+            ax = [ax]
+    
+        # Plot Spectrogram (first image)
+        im0 = ax[0].imshow(Y, aspect='auto', cmap='hot', interpolation="none", origin="lower")
+        ax[0].set_ylabel("Photon Energy [eV]", fontsize=fontsize)
+        ax[0].set_title('Spectrogram', fontsize=fontsize)
+        ax[0].set_xlabel('Time [steps]', fontsize=fontsize)
+        ax[0].set_xticks(range(0, 100, 20), labels=range(0, 100, 20), fontsize=fontsize)
+        ax[0].tick_params(axis='both', labelsize=fontsize)
+        ax[0].set_yticks(ticks=list(range(0, 61, 10)) + [60], labels=list(range(1150, 1220, 10)) + [1210])
+        ax[0].spines[['right', 'top']].set_visible(False)
+    
+        # Plot Detector Image (second image)
+        out = Evaluator.spec_detector_image_ax(ax[1], X, fontsize)
+    
+        # If Z is provided, plot it in third subplot
+        if Z is not None:
+            out = Evaluator.spec_detector_image_ax(ax[2], Z, fontsize, residual=True)
+    
+        # Add colorbar to the last subplot (regardless of 2 or 3 images)
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+        cbar = fig.colorbar(out, cax=cbar_ax)
+        cbar.set_label('Intensity [arb.u.]', fontsize=fontsize)
+        cbar.ax.tick_params(labelsize=fontsize)
+    
+        # Adjust layout to leave room for colorbar
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+
+    
     def plot_spectrogram_detector_image(self, peaks=5, seed=42):
         X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
-        fig, ax = plt.subplots(1,2)
-        fontsize = 12
-        ax[0].imshow(np.array(Y), aspect=Y.shape[1] / Y.shape[0], cmap='hot', interpolation="none", origin="lower",)
-        ax[0].set_ylabel("Photon Energy [eV]", fontsize=fontsize)
-        ax[0].set_title('Spectrogram', fontsize=fontsize)
-        ax[0].set_xlabel('Time [steps]', fontsize=fontsize)
-        ax[0].set_xticks(range(0, 100, 20), labels=range(0, 100, 20),fontsize=20)
-        ax[0].tick_params(axis='both', labelsize=fontsize)
-        ax[0].set_yticks(ticks=list(range(0, 61, 10)) + [60], labels=list(range(1150, 1220, 10)) + [1210])
-        ax[0].spines[['right', 'top']].set_visible(False)
-        out = ax[1].imshow(np.array(X), aspect=X.shape[1] / X.shape[0], cmap='hot', interpolation="none", origin="lower")
-        ax[1].set_ylabel("Kinetic Energy [eV]",fontsize=fontsize)
-        ax[1].set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)],fontsize=20)
-        ax[1].set_xlabel("TOF position [#]",fontsize=fontsize)
-        ax[1].set_title('Detector image',fontsize=fontsize)
-        ax[1].tick_params(labelsize=fontsize)
-        ax[1].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
-        ax[1].spines[['right', 'top']].set_visible(False)
-        plt.tight_layout()
-        out.set_clim(vmin=0, vmax=1)
-        fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
-        plt.savefig(self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png', dpi=300, bbox_inches="tight")
+        Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png')
+
 
     def plot_rmse_tensor(self, rmse):
         fig, ax1 = plt.subplots(figsize=(16, 4), constrained_layout=True)
@@ -419,6 +463,15 @@ class Evaluator:
             cmap="hot",
             origin="lower",
         )
+    
+    @staticmethod
+    def pacman_spectrogram_simulation(pacman, peaks, seed, its_override=None):
+        X, Y = Evaluator.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
+        X = (X - X.min()) / (X.max() - X.min())
+        Y = (Y - Y.min()) / (Y.max() - Y.min())
+        out = pm(torch.tensor(X).unsqueeze(0), its_override=its_override)
+        return X, Y, out
+
 
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None):
@@ -503,43 +556,84 @@ class Evaluator:
                     break
 
     def plot_reconstructing_tofs_comparison(
-        self, disabled_tofs, model_label, batch_id=1, sample_id=0, show_rmse=False,
-            label_index=None, tof_rmse:list=None
+    self, disabled_tofs, model_labels, batch_id=1, sample_id=0, show_rmse=False,
+    label_index=None, tof_rmse_list=None
     ):
+        if not isinstance(model_labels, list):
+            raise ValueError("model_labels must be a list of model names (strings).")
+        
+        # We'll assume same padding across all models for simplicity
+        padding = self.model_dict[model_labels[0]].padding
+    
         input_transform = Compose(
             self.initial_input_transforms
             + [
                 DisableSpecificTOFs(disabled_tofs=disabled_tofs),
                 PerImageNormalize(),
-                CircularPadding(self.model_dict[model_label].padding),
+                CircularPadding(padding),
             ]
         )
-        padding = self.model_dict[model_label].padding
+    
         test_dataloader = self.test_with_input_transform(input_transform)
+    
         with torch.no_grad():
             i = 0
             for x, y in test_dataloader:
                 i += 1
                 if i == batch_id:
-                    z = (
-                        self.evaluate_model(x[sample_id].unsqueeze(0).flatten(start_dim=1).to(self.device), model_label)[0]
-                        .reshape(-1, 16 + 2*padding)
-                        .unsqueeze(0)
-                    )
+                    # Prepare input
+                    input_sample = x[sample_id].unsqueeze(0).flatten(start_dim=1).to(self.device)
                     noisy_image = x[sample_id].cpu()
+    
+                    # Store all reconstructions
+                    reconstructions = []
+                    model_names = []
+    
+                    for idx, model_label in enumerate(model_labels):
+                        model = self.model_dict[model_label]
+                        model_padding = model.padding
+                        
+                        if model_padding != padding:
+                            raise ValueError(f"All models must use the same padding for fair comparison. Mismatch found in {model_label}.")
+    
+                        output = self.evaluate_model(input_sample, model_label)[0]
+                        output = output.reshape(-1, 16 + 2 * padding).unsqueeze(0)
+    
+                        if padding != 0:
+                            output = output[:, :, padding:-padding]
+    
+                        reconstructions.append(output[0].cpu())
+                        model_names.append(model_label)
+    
+                    # Crop noisy image if padding was applied
                     if padding != 0:
                         noisy_image = noisy_image[:, padding:-padding]
-                        z = z[:,:,padding:-padding]
+    
+                    # Prepare all images to plot: [input, label, model1, model2, ...]
+                    images = [noisy_image, y[sample_id].cpu()] + reconstructions
+                    labels = ["With noise", "Label"] + model_names
+    
+                    # Pass appropriate RMSEs for each model (optional)
+                    current_tof_rmse = None
+                    if tof_rmse_list is not None:
+                        if len(tof_rmse_list) != len(model_labels):
+                            raise ValueError("Length of tof_rmse_list must match number of model_labels.")
+                        current_tof_rmse = [None, None] + tof_rmse_list
+                    
+                    model_part = "_".join(model_names)
+                    filename = f"multi_model_comparison_{model_part}_b{batch_id}_s{sample_id}"
+                    
                     Evaluator.plot_detector_image_comparison(
-                        [noisy_image, y[sample_id].cpu(), z[0].cpu()],
-                        ["With noise", "Label", model_label],
-                        "two_tofs_disabled",
+                        images,
+                        labels,
+                        filename,
                         self.output_dir,
                         show_rmse=show_rmse,
                         label_index=label_index,
-                        tof_rmse=tof_rmse
+                        tof_rmse=current_tof_rmse,
                     )
                     break
+
                     
     def plot_single_tof_reconstructing(
         self, model_label, batch_id=1, sample_id=0
@@ -922,7 +1016,7 @@ if __name__ == "__main__":
         
         # 2.2 real sample disabled + denoising
         e.plot_real_data(
-            42, model_label_list=architecture_keys+spec_2_tof_keys+["Neighboring Mean"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={}, show_label=True, show_braces=True)
+            42, model_label_list=architecture_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={}, show_label=True, show_braces=False)
         
         requested_keys = architecture_keys+["Neighboring Mean"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
@@ -1076,6 +1170,22 @@ if __name__ == "__main__":
             stack.append(i[1].sum(dim=0).sum(dim=0))
         stack = torch.stack(stack).sum(dim=0)
         print(stack)
-    
+    elif test_case== 7:
+        e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+                                  "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
+                                  "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=100, pac_man=True)
+        for i,its_override in enumerate([10, None, 100]):
+            X, Y, out = pacman_spectrogram_simulation(pm, 3, 21, its_override=its_override)
+            Evaluator.save_spectrogram_detector_image_plot(out[0][0], out[1][0], output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
+        for i in range(5):
+            e.plot_real_data(42+i, model_label_list=["General model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
+        for i in range(5):
+            e.plot_reconstructing_tofs_comparison([7, 12], ["General model", "Pacman"], sample_id=i)
+            
+        e.plot_real_data(
+            42, model_label_list=["Neighboring Mean", "Pacman", "Spec model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs_other", additional_transform_labels={"Wiener": Wiener()}, show_label=True)
+        e.plot_reconstructing_tofs_comparison([7, 12], ["General model", "Spec model", "Pacman", "Neighboring Mean"], sample_id=0)
+
     else:
         print("Test case not found")

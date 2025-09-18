@@ -429,6 +429,8 @@ class TOFReconstructor(L.LightningModule):
             )
 
         evaluated_real_data = evaluation_function(real_images.flatten(start_dim=1))
+        if isinstance(evaluated_real_data, tuple):
+            evaluated_real_data = evaluated_real_data[0] # handle the pacman output
         evaluated_real_data = evaluated_real_data.reshape(
             -1, real_images.shape[1], real_images.shape[2]
         )
