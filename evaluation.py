@@ -32,7 +32,7 @@ from scipy.stats import ttest_rel
 import numpy as np
 import pickle
 from pacman import PacMan
-
+import time
 
 torch.manual_seed(42)
 
@@ -242,7 +242,6 @@ class Evaluator:
         workers = psutil.Process().cpu_affinity()
         num_workers = len(workers) if workers is not None else 0
         self.dataset.input_transform = input_transform
-        print(self.device.type)
         datamodule = DefaultDataModule(dataset=self.dataset, batch_size_val=batch_size, num_workers=num_workers, on_gpu=(self.device.type=='cuda'))
         datamodule.setup()
         test_dataloader = datamodule.test_dataloader(max_len=max_len)
@@ -331,7 +330,7 @@ class Evaluator:
         cb.ax.set_ylabel('RMSE', fontsize=20)
         plt.xlabel("TOF position [#]", fontsize=20)
         plt.ylabel("TOF position [#]", fontsize=20)
-        plt.savefig(self.output_dir + "2_tof_failed.png")
+        plt.savefig(self.output_dir + "2_tof_failed.pdf")
 
     @staticmethod
     def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42):
@@ -403,7 +402,7 @@ class Evaluator:
         X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
-        Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.png')
+        Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.pdf')
 
 
     def plot_rmse_tensor(self, rmse):
@@ -447,7 +446,7 @@ class Evaluator:
         # Show the plot
         plt.tight_layout()
 
-        plt.savefig(self.output_dir + "1_tof_failed.png")
+        plt.savefig(self.output_dir + "1_tof_failed.pdf")
 
 
     @staticmethod
@@ -531,7 +530,7 @@ class Evaluator:
 
         plt.tight_layout()
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
-        plt.savefig(output_dir + filename + ".png", dpi=300, bbox_inches="tight")
+        plt.savefig(output_dir + filename + ".pdf", dpi=300, bbox_inches="tight")
 
     def plot_missing_tofs_comparison(self, disabled_tofs, batch_id=1):
         input_transform = Compose(
@@ -775,7 +774,7 @@ class Evaluator:
     
         plt.xlabel('Gas Monitor Detector [mJ]')
         plt.ylabel('Electron Intensity [arb.u.]')
-        plt.savefig('outputs/saturation.png', bbox_inches='tight')
+        plt.savefig('outputs/saturation.pdf', bbox_inches='tight')
         plt.show()
 
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, tofs_to_evaluate=None):
@@ -903,7 +902,109 @@ class Evaluator:
             label=model_name,
             sub_label='1024 random data points')
         print(t0.timeit(repetitions))
-       
+
+    @staticmethod
+    def warmup_gpu(device):
+        a = torch.randn(3000, 3000, device=device)
+        b = torch.randn(3000, 3000, device=device)
+        torch.cuda.synchronize()
+        _ = torch.mm(a, b)
+        torch.cuda.synchronize()
+    
+    def eval_model_simulation(self, model_label, input_transform=[]):
+        
+        ds = self.test_with_input_transform(Compose(self.initial_input_transforms+input_transform))
+        model = self.model_dict[model_label]
+        
+        squared_error_list = []
+        time_list = []
+        
+        if hasattr(model, "device"):
+            if model.device.type == "cuda":
+                self.warmup_gpu(model.device)
+                device = "cuda"
+        else:
+            device = "cpu"
+        
+        for i in ds:
+            if model_label == "Pacman":
+                noisy = i[0].reshape(i[0].shape[0], -1, i[1].shape[-1])
+            else:
+                noisy = i[0].reshape(i[0].shape[0], -1)
+            label = i[1]
+            for j in trange(noisy.shape[0], leave=False):
+                start_time = time.time()
+                with torch.no_grad():
+                    output = model(noisy[j].unsqueeze(0).to(torch.device(device))).cpu()
+                if device == "cuda":
+                    torch.cuda.synchronize()
+                elapsed_time = time.time() - start_time
+                time_list.append(elapsed_time)
+                squared_error = (output[0]-label[j])**2
+                squared_error_list.append(squared_error[0])
+        
+        squared_error_tensor = torch.stack(squared_error_list)
+        time_tensor = torch.tensor(time_list)
+        return squared_error_tensor, time_tensor
+
+    @staticmethod
+    def print_rmse_time_comparison(results_dict, sig_level=0.01):
+        def format_value(val, best_val):
+            s = f"{val:.6f}"
+            return f"\\mathbf{{{s}}}" if val == best_val else s
+    
+        def print_line(name, rmse_tensor, time_tensor, rmse_sig=False, time_sig=False, best_rmse=None, best_time=None):
+            rmse_mean = rmse_tensor.mean().item()
+            rmse_std = rmse_tensor.std().item()
+            time_mean = time_tensor.mean().item()
+            time_std = time_tensor.std().item()
+    
+            rmse_str = format_value(rmse_mean, best_rmse)
+            time_str = format_value(time_mean, best_time)
+    
+            # Add significance markers
+            rmse_dagger = "\\dagger" if rmse_sig else ""
+            time_dagger = "\\dagger" if time_sig else ""
+    
+            print(f"{name} & ${rmse_str}\\pm{rmse_std:.4f}{rmse_dagger}$ & ${time_str}\\pm{time_std:.4f}{time_dagger}$ \\\\")
+    
+        # Preprocess all data
+        rmse_data = {}
+        time_data = {}
+    
+        for name, (errors, times) in results_dict.items():
+            # Reduce error tensor from [500, 60, 16] → [500] by mean over dims 1 & 2
+            rmse_per_run = torch.sqrt((errors ** 2).mean(dim=(1, 2)))
+            rmse_data[name] = rmse_per_run
+            time_data[name] = times  # Already shape [500]
+    
+        # Determine best (minimum) RMSE and time
+        rmse_means = {k: v.mean().item() for k, v in rmse_data.items()}
+        time_means = {k: v.mean().item() for k, v in time_data.items()}
+    
+        best_rmse = min(rmse_means.values())
+        best_time = min(time_means.values())
+    
+        # Choose a reference model (e.g., first entry) to compare others against
+        reference_name = list(results_dict.keys())[0]
+        ref_rmse = rmse_data[reference_name]
+        ref_time = time_data[reference_name]
+    
+        # Print LaTeX table lines
+        for name in results_dict:
+            rmse = rmse_data[name]
+            time = time_data[name]
+    
+            # Paired significance tests
+            rmse_p = ttest_rel(ref_rmse.cpu(), rmse.cpu()).pvalue
+            time_p = ttest_rel(ref_time.cpu(), time.cpu()).pvalue
+    
+            rmse_sig = rmse_p <= sig_level
+            time_sig = time_p <= sig_level
+    
+            print_line(name, rmse, time, rmse_sig=rmse_sig, time_sig=time_sig,
+                       best_rmse=best_rmse, best_time=best_time)
+        
 
 def eval_model(model, data):
     with torch.no_grad():
@@ -1174,7 +1275,7 @@ if __name__ == "__main__":
         e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
                                   "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
                                   "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
-                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=100, pac_man=True)
+                                 }, device=torch.device('cuda'), output_dir="outputs/", load_max=10000, pac_man=True)
         for i,its_override in enumerate([10, None, 100]):
             X, Y, out = pacman_spectrogram_simulation(pm, 3, 21, its_override=its_override)
             Evaluator.save_spectrogram_detector_image_plot(out[0][0], out[1][0], output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
@@ -1186,6 +1287,12 @@ if __name__ == "__main__":
         e.plot_real_data(
             42, model_label_list=["Neighboring Mean", "Pacman", "Spec model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs_other", additional_transform_labels={"Wiener": Wiener()}, show_label=True)
         e.plot_reconstructing_tofs_comparison([7, 12], ["General model", "Spec model", "Pacman", "Neighboring Mean"], sample_id=0)
+        results_dict = {}
+        
+        for model_label in ["General model", "Pacman"]:
+            results_dict[model_label] = e.eval_model_simulation(model_label)
 
+        e.persist_var(results_dict)
+        Evaluator.print_rmse_time_comparison(results_dict)
     else:
         print("Test case not found")

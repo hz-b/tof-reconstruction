@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 import torch
 
 class PacMan(torch.nn.Module):
-    def __init__(self, kickmin=0, kickmax=100, kickstep=2.0, tof_count=16):
+    def __init__(self, kickmin=0, kickmax=100, kickstep=0.5, tof_count=16):
         super().__init__()
         self.tof_count = tof_count
         self.kickg = arange(kickmin,kickmax,kickstep)
