@@ -935,7 +935,9 @@ class Evaluator:
             for j in trange(noisy.shape[0], leave=False):
                 start_time = time.time()
                 with torch.no_grad():
-                    output = model(noisy[j].unsqueeze(0).to(torch.device(device))).cpu()
+                    output = model(noisy[j].unsqueeze(0).to(torch.device(device)))
+                if model_label != "Pacman":
+                    output = output.cpu()
                 if device == "cuda":
                     torch.cuda.synchronize()
                 elapsed_time = time.time() - start_time
