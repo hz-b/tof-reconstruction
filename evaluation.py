@@ -932,7 +932,7 @@ class Evaluator:
             else:
                 noisy = i[0].reshape(i[0].shape[0], -1)
             label = i[1]
-            if limit is not None and len(time_list) > limit:
+            if limit is not None and len(time_list) >= limit:
                 break
             for j in trange(noisy.shape[0], leave=False):
                 start_time = time.time()
@@ -946,7 +946,7 @@ class Evaluator:
                 time_list.append(elapsed_time)
                 squared_error = (output[0]-label[j])**2
                 squared_error_list.append(squared_error[0])
-                if limit is not None and len(time_list) > limit:
+                if limit is not None and len(time_list) >= limit:
                     break
         
         squared_error_tensor = torch.stack(squared_error_list)
