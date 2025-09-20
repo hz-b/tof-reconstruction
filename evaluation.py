@@ -1224,8 +1224,8 @@ if __name__ == "__main__":
         with open('outputs/disabled_tof_intensity_tens.pkl', 'wb') as handle:
             pickle.dump(disabled_tof_intensity_tens.cpu(), handle)
         # Create a figure with 1 row and 2 columns for subplots
-        big_font=18
-        small_font=14
+        big_font=24
+        small_font=22
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         
         # Plot the RMSE tensor
