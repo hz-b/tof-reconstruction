@@ -555,8 +555,8 @@ class Evaluator:
                     break
 
     def plot_reconstructing_tofs_comparison(
-    self, disabled_tofs, model_labels, batch_id=1, sample_id=0, show_rmse=False,
-    label_index=None, tof_rmse_list=None
+    self, disabled_tofs, model_labels, batch_id=1, sample_id=0, show_rmse=True,
+    tof_rmse_list=None
     ):
         if not isinstance(model_labels, list):
             raise ValueError("model_labels must be a list of model names (strings).")
@@ -611,6 +611,7 @@ class Evaluator:
                     # Prepare all images to plot: [input, label, model1, model2, ...]
                     images = [noisy_image, y[sample_id].cpu()] + reconstructions
                     labels = ["With noise", "Label"] + model_names
+                    label_index=1
     
                     # Pass appropriate RMSEs for each model (optional)
                     current_tof_rmse = None
@@ -774,7 +775,7 @@ class Evaluator:
     
         plt.xlabel('Gas Monitor Detector [mJ]')
         plt.ylabel('Electron Intensity [arb.u.]')
-        plt.savefig('outputs/saturation.pdf', bbox_inches='tight')
+        plt.savefig('outputs/saturation.png', bbox_inches='tight')
         plt.show()
 
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, tofs_to_evaluate=None):
@@ -1108,7 +1109,7 @@ if __name__ == "__main__":
         # 1. spectrogram detector image
         e.plot_spectrogram_detector_image(3, 21)
         # simulated sample denoised+rec
-        e.plot_reconstructing_tofs_comparison([7, 12], "Spec model")
+        e.plot_reconstructing_tofs_comparison([7, 12], ["Spec model"])
         
         # AdamW vs Adam
         e.plot_real_data(42, model_label_list=["AdamW", "Adam"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="adamw", show_label=True, additional_transform_labels={})
