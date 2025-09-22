@@ -208,7 +208,7 @@ class Evaluator:
         keys2 = ["scenario"] + [entry.split()[1] for entry in list(result_dict.keys())]
         for entry in [keys, keys2]:
             output_string += " & ".join(entry) + r" \\" + "\n" 
-        output_string += r"\hline" + "\n"
+        output_string += r"\midrule" + "\n"
 
         model_keys = list(list(result_dict.values())[0].keys())
 
@@ -220,21 +220,31 @@ class Evaluator:
                 if statistics_table:
                     model_row_element = f"{scenario_value[model_key][0]:.2e}".replace("e+0", "e+").replace("e-0", "e-")+f" $\\pm${std_dev:.2e}".replace("e+0", "e+").replace("e-0", "e-")
                 else:
-                    model_row_element = f"{scenario_value[model_key][0]:.2e}".replace("e+0", "e+").replace("e-0", "e-")
+                    val_scaled = scenario_value[model_key][0] * 1e2
+                    model_row_element = f"{val_scaled:.2f}"
+                    if best_key == model_key:
+                        model_row_element = r"\mathbf{" + model_row_element + r"}"
+                    model_row_element = "$"+model_row_element+"$"
                 if best_key == model_key:
-                    model_row_element = r"\textbf{" + model_row_element + r"}"
+                    if statistics_table:
+                        model_row_element = r"\textbf{" + model_row_element + r"}"
+                    else:
+                        model_row_element += r" ~"
                 else:
                     if statistics_table:
                         p_value = Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1])[1]
                         model_row_element += f" ({p_value[0]:.2e}, {p_value[1]:.2e})".replace("e+0", "e+").replace("e-0", "e-")
-                    if Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1])[0] and not statistics_table:
+                    significant = Evaluator.significant_confidence_levels(scenario_value[best_key][1], scenario_value[model_key][1])[0]
+                    if significant and not statistics_table:
                         model_row_element += " $\\dagger$"
+                    if not significant and not statistics_table:
+                        model_row_element += r" ~"
                 model_row += [model_row_element]
             output_string += " & ".join(model_row) + r" \\" + "\n"
             if statistics_table:
-                output_string += r"""\hline""" + "\n"
+                output_string += r"""\midrule""" + "\n"
         if not statistics_table:
-            output_string += r"""\hline""" + "\n"
+            output_string += r"""\bottomrule""" + "\n"
         output_string += r"""\end{"""+table_environment+r"""}"""
         return output_string
 
@@ -473,7 +483,7 @@ class Evaluator:
 
 
     @staticmethod
-    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None):
+    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None, min_max_normalize_labels=["Pacman"]):
         if len(data_list) > 3:
             if len(data_list) == 4:
                 columns = 2
@@ -486,19 +496,27 @@ class Evaluator:
         fig, ax = plt.subplots(
             rows, columns, sharex=False, sharey=True, squeeze=False, figsize=(8, 3+rows*1.2), constrained_layout=True
         )
+        z_score = lambda x: (x - x.mean()) / x.std()
+        min_max = lambda x: (x - x.min()) / (x.max() - x.min())
         for i in range(len(data_list)):
             cur_row = i // columns
             cur_col = i % columns
             if cur_col == 0:
                 ax[cur_row, cur_col].set_ylabel("Kinetic Energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], data_list[i], title_list[i], rows!=1)
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1)
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
             if i != label_index and show_rmse:
-                diff = data_list[label_index] - data_list[i]
+                data_list_entry = data_list[i]
+                if title_list[i] in min_max_normalize_labels:
+                    data_list_entry = min_max(data_list_entry)
+                diff = data_list[label_index] - data_list_entry
+
+                diff_z = z_score(data_list[label_index]) - z_score(data_list[i])
+                rmse_z = torch.sqrt(torch.mean(diff_z**2))
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
-                ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
+                ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item()*100:.2f}, Z-RMSE: {rmse_z.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
             if i!= label_index and tof_rmse is not None:
                 diff = data_list[label_index] - data_list[i]
                 diff = diff[tof_rmse]
