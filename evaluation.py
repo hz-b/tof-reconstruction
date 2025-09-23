@@ -431,7 +431,7 @@ class Evaluator:
 
         # Plot the first vector (y1) with its scale on the primary y-axis
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=20)
-        line1, = ax1.plot(x, rmse, color=color1, label='RMSE')  # Set zorder for line1
+        line1, = ax1.plot(x, rmse*100, color=color1, label='RMSE')  # Set zorder for line1
         ax1.set_xlabel('TOF position [#]', fontsize=20)
         ax1.set_ylabel('RMSE', color=color1, fontsize=20)
         plt.yticks(fontsize=20)
@@ -1247,7 +1247,7 @@ if __name__ == "__main__":
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         
         # Plot the RMSE tensor
-        rmse_image = axes[0].imshow(disabled_tof_rmse_tens.cpu().detach().numpy(), cmap="hot", interpolation='none', aspect='auto')
+        rmse_image = axes[0].imshow(disabled_tof_rmse_tens.cpu().detach().numpy() * 100, cmap="hot", interpolation='none', aspect='auto')
         axes[0].set_xlabel("TOF position [#]", fontsize=big_font)
         axes[0].set_ylabel("Time [steps]", fontsize=big_font)
         axes[0].set_title("RMSE", fontsize=big_font)
@@ -1297,13 +1297,14 @@ if __name__ == "__main__":
         stack = torch.stack(stack).sum(dim=0)
         print(stack)
     elif test_case== 7:
+        min_max = lambda x: (x-x.min())/(x.max()-x.min())
         e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
                                   "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
                                   "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
                                  }, device=torch.device('cuda'), output_dir="outputs/", load_max=10000, pac_man=True)
         for i,its_override in enumerate([10, None, 100]):
             X, Y, out = Evaluator.pacman_spectrogram_simulation(e.model_dict["Pacman"], 3, 21, its_override=its_override)
-            Evaluator.save_spectrogram_detector_image_plot(out[0][0], out[1][0], output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
+            Evaluator.save_spectrogram_detector_image_plot(min_max(out[0][0]), min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
         for i in range(5):
             e.plot_real_data(42+i, model_label_list=["General model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
         for i in range(5):
