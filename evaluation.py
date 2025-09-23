@@ -343,8 +343,8 @@ class Evaluator:
         plt.savefig(self.output_dir + "2_tof_failed.pdf")
 
     @staticmethod
-    def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42):
-        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, False, False, None])
+    def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42, hot_enabled=False):
+        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, hot_enabled, False, None])
         assert output is not None
         X, Y = output
         return X, Y
@@ -474,8 +474,8 @@ class Evaluator:
         )
     
     @staticmethod
-    def pacman_spectrogram_simulation(pacman, peaks, seed, its_override=None):
-        X, Y = Evaluator.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
+    def pacman_spectrogram_simulation(pacman, peaks, seed, its_override=None, hot_enabled=False):
+        X, Y = Evaluator.retrieve_spectrogram_detector(peaks=peaks, seed=seed, hot_enabled=hot_enabled)
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
         out = pacman(torch.tensor(X).unsqueeze(0), its_override=its_override)
@@ -1302,9 +1302,11 @@ if __name__ == "__main__":
                                   "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
                                   "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
                                  }, device=torch.device('cuda'), output_dir="outputs/", load_max=10000, pac_man=True)
-        for i,its_override in enumerate([10, None, 100]):
-            X, Y, out = Evaluator.pacman_spectrogram_simulation(e.model_dict["Pacman"], 3, 21, its_override=its_override)
-            Evaluator.save_spectrogram_detector_image_plot(min_max(out[0][0]), min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps.pdf", Z=out[2][0])
+        for i,its_override in enumerate([10, None, 100, 100]):
+            hot_enabled=True if i==3 else False
+            label_appendix="_hot" if hot_enabled else ""
+            X, Y, out = Evaluator.pacman_spectrogram_simulation(e.model_dict["Pacman"], 3, 21, its_override=its_override, hot_enabled=hot_enabled)
+            Evaluator.save_spectrogram_detector_image_plot(min_max(out[0][0]), min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps"+label_appendix+".pdf", Z=out[2][0])
         for i in range(5):
             e.plot_real_data(42+i, model_label_list=["General model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
         for i in range(5):
