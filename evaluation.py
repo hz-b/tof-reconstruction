@@ -938,7 +938,7 @@ class Evaluator:
         model = self.model_dict[model_label]
         
         squared_error_list = []
-        z_squared_error_list = []
+        z_error_list = []
         time_list = []
         
         device = "cpu"
@@ -974,72 +974,93 @@ class Evaluator:
                 squared_error = (output-label[j])**2
                 squared_error_list.append(squared_error[0])
                 squared_z_error = (output_z-z_score(label[j]))
-                z_squared_error_list.append(squared_z_error[0])
+                z_error_list.append(squared_z_error[0])
                 if limit is not None and len(time_list) >= limit:
                     break
         
         squared_error_tensor = torch.stack(squared_error_list)
-        z_squared_error_tensor = torch.stack(z_squared_error_list)
+        z_error_tensor = torch.stack(z_error_list)
         time_tensor = torch.tensor(time_list)
-        return squared_error_tensor, z_squared_error_tensor, time_tensor
+        return squared_error_tensor, z_error_tensor, time_tensor
 
     @staticmethod
     def print_rmse_time_comparison(results_dict, sig_level=0.01):
-        def format_value(val, best_val):
-            s = f"{val:.6f}"
+        def format_value(val, best_val, multiply=1., digits=2):
+            format_str = f"{{:.{digits}f}}"
+            s = format_str.format(val * multiply)
             return f"\\mathbf{{{s}}}" if val == best_val else s
-    
-        def print_line(name, rmse_tensor, time_tensor, rmse_sig=False, time_sig=False, best_rmse=None, best_time=None):
+
+
+        def print_line(name, rmse_tensor, rmse_z_tensor, time_tensor, 
+                       rmse_sig=False, rmse_z_sig=False, time_sig=False, 
+                       best_rmse=None, best_rmse_z=None, best_time=None):
             rmse_mean = rmse_tensor.mean().item()
             rmse_std = rmse_tensor.std().item()
+            rmse_z_mean = rmse_z_tensor.mean().item()
+            rmse_z_std = rmse_z_tensor.std().item()
             time_mean = time_tensor.mean().item()
             time_std = time_tensor.std().item()
-    
-            rmse_str = format_value(rmse_mean, best_rmse)
-            time_str = format_value(time_mean, best_time)
-    
+
+            rmse_str = format_value(rmse_mean, best_rmse, multiply=100)
+            rmse_z_str = format_value(rmse_z_mean, best_rmse_z)
+            time_str = format_value(time_mean, best_time, digits=4)
+
             # Add significance markers
-            rmse_dagger = "\\dagger" if rmse_sig else ""
-            time_dagger = "\\dagger" if time_sig else ""
-    
-            print(f"{name} & ${rmse_str}\\pm{rmse_std:.4f}{rmse_dagger}$ & ${time_str}\\pm{time_std:.4f}{time_dagger}$ \\\\")
-    
+            rmse_dagger = "^\\dagger" if rmse_sig else ""
+            rmse_z_dagger = "^\\dagger" if rmse_z_sig else ""
+            time_dagger = "^\\dagger" if time_sig else ""
+
+            print(f"{name} & "
+                  f"${rmse_str}\\pm{rmse_std:.2f}{rmse_dagger}$ & "
+                  f"${rmse_z_str}\\pm{rmse_z_std:.2f}{rmse_z_dagger}$ & "
+                  f"${time_str}\\pm{time_std:.4f}{time_dagger}$ \\\\")
+
         # Preprocess all data
         rmse_data = {}
+        rmse_z_data = {}
         time_data = {}
-    
-        for name, (errors, times) in results_dict.items():
-            # Reduce error tensor from [500, 60, 16] → [500] by mean over dims 1 & 2
-            rmse_per_run = torch.sqrt((errors ** 2).mean(dim=(1, 2)))
+
+        for name, (squared_errors, z_errors, times) in results_dict.items():
+            rmse_per_run = torch.sqrt((squared_errors).mean(dim=(1, 2)))      # [500]
+            rmse_z_per_run = torch.sqrt((z_errors ** 2).mean(dim=(1, 2)))  # [500]
             rmse_data[name] = rmse_per_run
+            rmse_z_data[name] = rmse_z_per_run
             time_data[name] = times  # Already shape [500]
-    
-        # Determine best (minimum) RMSE and time
+
+        # Determine best (minimum) RMSE, RMSE-Z, and time
         rmse_means = {k: v.mean().item() for k, v in rmse_data.items()}
+        rmse_z_means = {k: v.mean().item() for k, v in rmse_z_data.items()}
         time_means = {k: v.mean().item() for k, v in time_data.items()}
-    
+
         best_rmse = min(rmse_means.values())
+        best_rmse_z = min(rmse_z_means.values())
         best_time = min(time_means.values())
-    
+
         # Choose a reference model (e.g., first entry) to compare others against
         reference_name = list(results_dict.keys())[0]
         ref_rmse = rmse_data[reference_name]
+        ref_rmse_z = rmse_z_data[reference_name]
         ref_time = time_data[reference_name]
-    
+
         # Print LaTeX table lines
         for name in results_dict:
             rmse = rmse_data[name]
+            rmse_z = rmse_z_data[name]
             time = time_data[name]
-    
+
             # Paired significance tests
             rmse_p = ttest_rel(ref_rmse.cpu(), rmse.cpu()).pvalue
+            rmse_z_p = ttest_rel(ref_rmse_z.cpu(), rmse_z.cpu()).pvalue
             time_p = ttest_rel(ref_time.cpu(), time.cpu()).pvalue
-    
+
             rmse_sig = rmse_p <= sig_level
+            rmse_z_sig = rmse_z_p <= sig_level
             time_sig = time_p <= sig_level
-    
-            print_line(name, rmse, time, rmse_sig=rmse_sig, time_sig=time_sig,
-                       best_rmse=best_rmse, best_time=best_time)
+
+            print_line(name, rmse, rmse_z, time,
+                       rmse_sig=rmse_sig, rmse_z_sig=rmse_z_sig, time_sig=time_sig,
+                       best_rmse=best_rmse, best_rmse_z=best_rmse_z, best_time=best_time)
+
         
 
 def eval_model(model, data):
@@ -1333,6 +1354,14 @@ if __name__ == "__main__":
             results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000)
 
         e.persist_var(results_dict, "pacman.pkl")
+        Evaluator.print_rmse_time_comparison(results_dict)
+    elif test_case == 8:
+        results_dict = {}
+        e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
+        for model_label in ["General model", "Pacman"]:
+            results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableSpecificTOFs([7, 12])])
+        e.persist_var(results_dict, "pacman_rec.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
     else:
         print("Test case not found")
