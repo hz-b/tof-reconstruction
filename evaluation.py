@@ -408,11 +408,12 @@ class Evaluator:
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
 
     
-    def plot_spectrogram_detector_image(self, peaks=5, seed=42):
-        X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed)
+    def plot_spectrogram_detector_image(self, peaks=5, seed=42, hot_enabled=False):
+        X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed, hot_enabled=hot_enabled)
+        label_appendix="_hot" if hot_enabled else ""
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
-        Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+'.pdf')
+        Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+label_appendix+'.pdf')
 
 
     def plot_rmse_tensor(self, rmse):
@@ -931,19 +932,21 @@ class Evaluator:
         torch.cuda.synchronize()
     
     def eval_model_simulation(self, model_label, input_transform=[], limit=None):
-        
+        z_score = lambda x: (x - x.mean()) / x.std()
+        min_max = lambda x: (x - x.min()) / (x.max() - x.min())
         ds = self.test_with_input_transform(Compose(self.initial_input_transforms+input_transform))
         model = self.model_dict[model_label]
         
         squared_error_list = []
+        z_squared_error_list = []
         time_list = []
+        
+        device = "cpu"
         
         if hasattr(model, "device"):
             if model.device.type == "cuda":
                 self.warmup_gpu(model.device)
-                device = "cuda"
-        else:
-            device = "cpu"
+                device = "cuda"            
         
         for i in ds:
             if model_label == "Pacman":
@@ -956,21 +959,29 @@ class Evaluator:
             for j in trange(noisy.shape[0], leave=False):
                 start_time = time.time()
                 with torch.no_grad():
-                    output = model(noisy[j].unsqueeze(0).to(torch.device(device)))
+                    output = model(noisy[j].unsqueeze(0).to(torch.device(device)))[0]
                 if model_label != "Pacman":
                     output = output.cpu()
+
+                output_z = output
+                
+                if model_label == "Pacman":
+                    output = min_max(output)
                 if device == "cuda":
                     torch.cuda.synchronize()
                 elapsed_time = time.time() - start_time
                 time_list.append(elapsed_time)
-                squared_error = (output[0]-label[j])**2
+                squared_error = (output-label[j])**2
                 squared_error_list.append(squared_error[0])
+                squared_z_error = (output_z-z_score(label[j]))
+                z_squared_error_list.append(squared_z_error[0])
                 if limit is not None and len(time_list) >= limit:
                     break
         
         squared_error_tensor = torch.stack(squared_error_list)
+        z_squared_error_tensor = torch.stack(z_squared_error_list)
         time_tensor = torch.tensor(time_list)
-        return squared_error_tensor, time_tensor
+        return squared_error_tensor, z_squared_error_tensor, time_tensor
 
     @staticmethod
     def print_rmse_time_comparison(results_dict, sig_level=0.01):
@@ -1126,6 +1137,7 @@ if __name__ == "__main__":
 
         # 1. spectrogram detector image
         e.plot_spectrogram_detector_image(3, 21)
+        e.plot_spectrogram_detector_image(3, 21, hot_enabled=True)
         # simulated sample denoised+rec
         e.plot_reconstructing_tofs_comparison([7, 12], ["Spec model"])
         
