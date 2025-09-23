@@ -908,7 +908,7 @@ class Evaluator:
         with open(os.path.join(self.output_dir, filename), 'wb') as file:
             pickle.dump(save_var, file)
 
-    def measure_time(self, model_name):
+    def measure_time(self, model_name, device="cpu"):
         print((subprocess.check_output("lscpu | grep 'Model name'", shell=True).strip()).decode())
         model = self.model_dict[model_name]
 
@@ -917,7 +917,7 @@ class Evaluator:
         t0 = benchmark.Timer(
             stmt='eval_model(model, data)',
             setup='from __main__ import eval_model',
-            globals={'model': model.to('cpu'), 'data': data.to('cpu')},
+            globals={'model': model.to(device), 'data': data.to(device)},
             num_threads=100,
             label=model_name,
             sub_label='1024 random data points')
@@ -1089,7 +1089,8 @@ if __name__ == "__main__":
              "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         if job_id is None or job_id == 0:
-            e.measure_time("General model")
+            e.measure_time("General model", device="cpu")
+            e.measure_time("General model", device="cuda")
             result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
             e.persist_var(result_dict, 'denoising.pkl')
             print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
