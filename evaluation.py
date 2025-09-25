@@ -330,6 +330,9 @@ class Evaluator:
             return torch.tensor(outputs, device=self.device)
 
     def plot_rmse_matrix(self, matrix, diag):
+        # scale to units of 10^-2
+        matrix = matrix * 100
+        diag = diag * 100
         f = plt.figure(figsize=(8, 6), constrained_layout=True)
         plt.matshow((matrix+matrix.T+torch.diag(diag)).cpu(), fignum=plt.get_fignums()[-1], cmap="hot", aspect="auto")
         plt.xticks(range(0, 16), [str(i) for i in range(1, 17)], fontsize=15)
