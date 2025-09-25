@@ -519,7 +519,7 @@ class Evaluator:
                 rmse = torch.sqrt(mse)
                 ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item()*100:.2f}, Z-RMSE: {rmse_z.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
             if i!= label_index and tof_rmse is not None:
-                diff = data_list[label_index] - data_list[i]
+                diff = data_list[label_index] - data_list_entry
                 diff = diff[tof_rmse]
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
@@ -631,14 +631,7 @@ class Evaluator:
                     images = [noisy_image, y[sample_id].cpu()] + reconstructions
                     labels = ["With noise", "Label"] + model_names
                     label_index=1
-    
-                    # Pass appropriate RMSEs for each model (optional)
-                    current_tof_rmse = None
-                    if tof_rmse_list is not None:
-                        if len(tof_rmse_list) != len(model_labels):
-                            raise ValueError("Length of tof_rmse_list must match number of model_labels.")
-                        current_tof_rmse = [None, None] + tof_rmse_list
-                    
+
                     model_part = "_".join(model_names)
                     filename = f"multi_model_comparison_{model_part}_b{batch_id}_s{sample_id}"
                     
@@ -649,7 +642,7 @@ class Evaluator:
                         self.output_dir,
                         show_rmse=show_rmse,
                         label_index=label_index,
-                        tof_rmse=current_tof_rmse,
+                        tof_rmse=tof_rmse_list,
                     )
                     break
 
@@ -1061,7 +1054,40 @@ class Evaluator:
                        rmse_sig=rmse_sig, rmse_z_sig=rmse_z_sig, time_sig=time_sig,
                        best_rmse=best_rmse, best_rmse_z=best_rmse_z, best_time=best_time)
 
-        
+    @staticmethod
+    def plot_ellipt(outputs_dir):
+        # Define the ef(phi) function using PyTorch tensors
+        def ef(phi, epsilon=0.73, theta=0.0):
+            return (epsilon**2) / (epsilon**2 * torch.cos(phi - theta)**2 + torch.sin(phi - theta)**2)
+
+        # Create phi values in radians (PyTorch tensor)
+        phi_rad = torch.linspace(-torch.pi, torch.pi, 1000)
+        phi_deg = phi_rad * 180 / torch.pi  # convert to degrees
+
+        # Calculate ef(phi) for different epsilons (PyTorch tensors)
+        epsilons = [1.0, 0.9, 0.73, 0.5, 0.3]
+        ef_values = {eps: ef(phi_rad, epsilon=eps) for eps in epsilons}
+
+        # Original tab10 colors, minus red
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b']
+
+        # Plotting with matplotlib (convert tensors to numpy arrays for plotting)
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for eps, color in zip(epsilons, colors):
+            ax.plot(phi_deg.numpy(), ef_values[eps].numpy(), label=f"$\\varepsilon = {eps}$", color=color)
+
+        # Set large fonts for this specific plot
+        ax.set_xlabel(r"$\phi$ [°]", fontsize=16)
+        ax.set_ylabel(r"$\text{ef}(\phi)$", fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.legend(fontsize=14)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.axvline(0, color='gray', linestyle='--', linewidth=1)
+        plt.tight_layout()
+
+        # Make sure output directory exists
+        os.makedirs(outputs_dir, exist_ok=True)
+        plt.savefig(outputs_dir+'ellipt.pdf')
 
 def eval_model(model, data):
     with torch.no_grad():
@@ -1196,6 +1222,8 @@ if __name__ == "__main__":
         print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
     elif test_case == 3:
         Evaluator.plot_gasdet_electron_int(sample_count=None)
+        Evaluator.plot_ellipt("outputs/")
+        
     elif test_case == 4:
         model_dict = {"general": "outputs/tof_reconstructor/hj69jsmh/checkpoints/"}
         e: Evaluator = Evaluator(model_dict=model_dict, device = torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device(), load_max=1)
@@ -1361,7 +1389,7 @@ if __name__ == "__main__":
         e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
                                  }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
         for model_label in ["General model", "Pacman"]:
-            results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableSpecificTOFs([7, 12])])
+            results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableRandomTOFs(1, 3)])
         e.persist_var(results_dict, "pacman_rec.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
     else:
