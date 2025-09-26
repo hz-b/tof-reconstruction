@@ -152,7 +152,7 @@ class Evaluator:
                             CircularPadding(model.padding),
                         ]
                     )
-            output_dict[key] = self.evaluate_rmse(model, input_transform)
+            output_dict[key] = self.evaluate_rmse(key, input_transform)
         
         return output_dict
 
@@ -257,7 +257,8 @@ class Evaluator:
         test_dataloader = datamodule.test_dataloader(max_len=max_len)
         return test_dataloader
 
-    def evaluate_missing_tofs(self, disabled_tofs, model):
+    def evaluate_missing_tofs(self, disabled_tofs, model_label):
+        model = self.model_dict[model_label]
         input_transform = Compose(
             self.initial_input_transforms
             + [
@@ -266,29 +267,124 @@ class Evaluator:
                 CircularPadding(model.padding),
             ]
         )
-        mean, _ = self.evaluate_rmse(model, input_transform)
+        mean, _ = self.evaluate_rmse(model_label, input_transform)
         return mean
 
-    def evaluate_rmse(self, model, input_transform):
-        with torch.no_grad():
-            test_dataloader = self.test_with_input_transform(input_transform)
-            test_loss_list = []
-            for x, y in tqdm(test_dataloader, leave=False):
-                channels = x.shape[-2]
-                tof_count = x.shape[-1] - 2 * model.padding
-                x = x.flatten(start_dim=1)
-                y = y.flatten(start_dim=1).to(model.device)
-                y_hat = model(x.to(model.device))
-                y_hat = y_hat.reshape(-1, channels, tof_count + 2*model.padding)
-                if model.padding != 0:
-                    y_hat = y_hat[:, :, model.padding:-model.padding]
-                y_hat = y_hat.flatten(start_dim=1)
-                test_loss = torch.sqrt(torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
-                test_loss_list.append(test_loss)
-            test_loss_tensor = torch.cat(test_loss_list)
-            return test_loss_tensor.mean(), test_loss_tensor.flatten()
+    def evaluate_rmse(self, model_label, input_transform):
+        test_dataloader = self.test_with_input_transform(input_transform)
+        test_loss_list = []
+        tof_loss_list = []
+        for x, y in tqdm(test_dataloader, leave=False):
+            test_loss = self.calculate_losses(model_label, x, y)
+            test_loss_list.append(test_loss)
+        test_loss_tensor = torch.cat(test_loss_list)
+        return test_loss_tensor.mean(), test_loss_tensor.flatten()
 
-    def two_missing_tofs_rmse_matrix(self, model, job_id=None, total_job_count=None):
+    def evaluate_extended_rmse(self, model_label, input_transform, pacman_limit=None):
+        test_dataloader = self.test_with_input_transform(input_transform)
+        
+        test_diff_list = []
+        z_diff_list = []
+        tof_diff_list = []
+        z_tof_diff_list = []
+        
+        for x, y in tqdm(test_dataloader, leave=False):
+            if model_label == "Pacman":
+                x = x[:pacman_limit]
+                y = y[:pacman_limit]
+            test_diff, z_diff, tof_diff, z_tof_diff = self.calculate_losses(model_label, x, y, extended_losses=True)
+            
+            test_diff_list.append(test_diff)
+            z_diff_list.append(z_diff)
+            tof_diff_list.append(tof_diff)
+            z_tof_diff_list.append(z_tof_diff)
+            if model_label == "Pacman":
+                if pacman_limit is not None and len(test_diff_list) * x.shape[0] >= pacman_limit:
+                    break
+                
+        
+        # Concatenate all loss tensors
+        test_diff_tensor = torch.cat(test_diff_list)
+        z_diff_tensor = torch.cat(z_diff_list)
+        tof_diff_tensor = torch.cat(tof_diff_list)
+        z_diff_tensor = torch.cat(z_tof_diff_list)
+        
+        return {
+            "test_loss": test_diff_tensor,
+            "z_loss": z_diff_tensor,
+            "tof_loss": tof_diff_tensor,
+            "z_tof_loss": z_diff_tensor,
+        }
+    
+    @staticmethod
+    def z_score(x):
+        # Compute mean and std per sample (across all dims except dim=0)
+        dims = tuple(range(1, x.ndim))
+        mean = x.mean(dim=dims, keepdim=True)
+        std = x.std(dim=dims, keepdim=True)
+        return (x - mean) / (std)
+
+    @staticmethod
+    def min_max(x):
+        # Compute min and max per sample
+        dims = tuple(range(1, x.ndim))
+        min_val = x.min(dim=dims, keepdim=True).values
+        max_val = x.max(dim=dims, keepdim=True).values
+        return (x - min_val) / (max_val - min_val)
+
+
+    def calculate_losses(self, model_label, x, y, extended_losses=False):
+        model = self.model_dict[model_label]
+        channels = x.shape[-2]
+        tof_count = x.shape[-1] - 2 * model.padding
+        x = x.flatten(start_dim=1)
+        y = y.flatten(start_dim=1).to(model.device)
+        with torch.no_grad():
+            y_hat = model(x.to(model.device))
+
+        y_hat = y_hat.reshape(-1, channels, tof_count + 2*model.padding)
+        if model.padding != 0:
+            y_hat = y_hat[:, :, model.padding:-model.padding]
+        y_hat = y_hat.flatten(start_dim=1)
+        
+        y_hat_copy = y_hat
+        if model_label == "Pacman":
+            y_hat = min_max(y_hat)
+        
+        if extended_losses:
+            test_diff = y_hat - y
+            z_diff = Evaluator.z_score(y_hat_copy) - Evaluator.z_score(y)
+            # now we need a mask to regain the disabled TOFs
+            # Condition 1: They need all to be equal
+            x_orig = x.reshape(-1, channels, tof_count)
+            y_orig = y.reshape(-1, channels, tof_count)
+            y_hat_orig = y_hat.reshape(-1, channels, tof_count)
+            y_hat_copy_orig = y_hat_copy.reshape(-1, channels, tof_count)
+
+            any_diff = (x_orig != y_orig).any(dim=1)  
+
+            # Condition 2: All values in x are zero in the column
+            all_y_zero = (x_orig == 0).all(dim=1) 
+            # Combine both conditions
+            mask = any_diff & all_y_zero
+
+
+            mask_expanded = mask.unsqueeze(1).expand(-1, y_orig.shape[1], -1)
+            y_selected = y_orig[mask_expanded]
+            y_hat_selected = y_hat_orig[mask_expanded]
+            y_hat_copy_selected = y_hat_copy_orig[mask_expanded]
+            
+            tof_y = y_selected
+            tof_y_hat = y_hat_selected
+            tof_y_hat_copy = y_hat_copy_selected
+            tof_diff = (tof_y_hat - tof_y).flatten()
+            z_tof_diff = (Evaluator.z_score(tof_y_hat) - Evaluator.z_score(tof_y)).flatten()
+            return test_diff.reshape(-1, channels, tof_count), z_diff.reshape(-1, channels, tof_count), tof_diff.reshape(-1, channels), z_tof_diff.reshape(-1, channels)
+        else:
+            return torch.sqrt(torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
+
+    def two_missing_tofs_rmse_matrix(self, model_label, job_id=None, total_job_count=None):
+        model = self.model_dict[model_label]
         save_file = lambda x,y: 'outputs/rmse_matrix_'+str(x)+'_'+str(y)+'.pt'
         with torch.no_grad():
             output_matrix = torch.full((16, 16), 0., device=model.device)
@@ -310,7 +406,7 @@ class Evaluator:
             
             for i, j in tqdm(evaluation_list):
                 new_entry = self.evaluate_missing_tofs(
-                        [i, j], model
+                        [i, j], model_label
                 )
                 torch.save(new_entry, save_file(i,j))
             if all([os.path.exists(save_file(i,j)) for i, j in full_evaluation_list]):
@@ -320,12 +416,12 @@ class Evaluator:
     
             return None
 
-    def one_missing_tof_rmse_tensor(self, model):
+    def one_missing_tof_rmse_tensor(self, model_label):
         with torch.no_grad():
             outputs = []
             for i in trange(16):
                 outputs.append(
-                    self.evaluate_missing_tofs([i], model)
+                    self.evaluate_missing_tofs([i], model_label)
                 )
             return torch.tensor(outputs, device=self.device)
 
@@ -346,8 +442,8 @@ class Evaluator:
         plt.savefig(self.output_dir + "2_tof_failed.pdf")
 
     @staticmethod
-    def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42, hot_enabled=False):
-        output = Job([1, kick_min, kick_max, peaks, 0.73, (90 - 22.5) / 180 * np.pi, 30, seed, hot_enabled, False, None])
+    def retrieve_spectrogram_detector(kick_min=0, kick_max=100, peaks=5, seed=42, hot_enabled=False, ellipt=0.73, pulse=7):
+        output = Job([1, kick_min, kick_max, peaks, ellipt, (90 - 22.5) / 180 * np.pi, pulse, seed, hot_enabled, False, None])
         assert output is not None
         X, Y = output
         return X, Y
@@ -411,11 +507,12 @@ class Evaluator:
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
 
     
-    def plot_spectrogram_detector_image(self, peaks=5, seed=42, hot_enabled=False):
-        X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed, hot_enabled=hot_enabled)
+    def plot_spectrogram_detector_image(self, peaks=5, seed=42, hot_enabled=False, ellipt=0.73, pulse=7):
+        X, Y = self.retrieve_spectrogram_detector(peaks=peaks, seed=seed, pulse=pulse, hot_enabled=hot_enabled, ellipt=ellipt)
         label_appendix="_hot" if hot_enabled else ""
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
+        print(X.sum())
         Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+label_appendix+'.pdf')
 
 
@@ -500,8 +597,7 @@ class Evaluator:
         fig, ax = plt.subplots(
             rows, columns, sharex=False, sharey=True, squeeze=False, figsize=(8, 3+rows*1.2), constrained_layout=True
         )
-        z_score = lambda x: (x - x.mean()) / x.std()
-        min_max = lambda x: (x - x.min()) / (x.max() - x.min())
+
         for i in range(len(data_list)):
             cur_row = i // columns
             cur_col = i % columns
@@ -1058,39 +1154,134 @@ class Evaluator:
                        best_rmse=best_rmse, best_rmse_z=best_rmse_z, best_time=best_time)
 
     @staticmethod
+    def format_tof_rmse_table_with_significance(result_dict, sig_level=0.01):
+        def se(x):
+            return (x**2).mean(dim=-1).sqrt()
+
+        def rmse_std(x):
+            return (x**2).mean(dim=-1).sqrt()
+
+        def format_val(mean, std, best, digits=2, sig=False):
+            fmt = f"{{:.{digits}f}}"
+            val_str = fmt.format(mean)
+            val_str = f"\\mathbf{{{val_str}}}" if abs(mean - best) < 1e-6 else val_str
+            dagger = "^\\dagger" if sig else "~"
+            return f"${val_str}{dagger} \\pm {fmt.format(std)}$"
+
+        # Collect means and stds for all methods
+        tof_means = {}
+        z_means = {}
+        tof_stds = {}
+        z_stds = {}
+
+        for method in result_dict:
+            tof = result_dict[method]["tof_loss"]
+            z_tof = result_dict[method]["z_tof_loss"]
+
+            tof_means[method] = se(tof).mean().item() * 100
+            z_means[method] = se(z_tof).mean().item()
+            tof_stds[method] = rmse_std(tof).std().item() * 100
+            z_stds[method] = rmse_std(z_tof).std().item()
+
+        # Identify best methods per column
+        best_tof = min(tof_means.values())
+        best_z = min(z_means.values())
+
+        best_tof_method = min(tof_means, key=tof_means.get)
+        best_z_method = min(z_means, key=z_means.get)
+
+        # Extract reference tensors for significance tests
+        ref_tof = se(result_dict[best_tof_method]["tof_loss"])
+        ref_z = se(result_dict[best_z_method]["z_tof_loss"])
+
+        # Start LaTeX table output
+        print("\\begin{tabular}{lrr}")
+        print("\\toprule")
+        print("\\textbf{Method} & \\textbf{ToF RMSE [\\%]} & \\textbf{ToF RMSE\\textsubscript{z}} \\\\")
+        print("\\midrule")
+
+        for method in result_dict:
+            tof = se(result_dict[method]["tof_loss"])
+            z_tof = se(result_dict[method]["z_tof_loss"])
+
+            # Truncate to match reference lengths to avoid shape issues
+            N_tof = min(len(tof), len(ref_tof))
+            N_z = min(len(z_tof), len(ref_z))
+
+            # Determine significance for ToF RMSE
+            if method != best_tof_method:
+                tof_p = ttest_rel(ref_tof[:N_tof].cpu(), tof[:N_tof].cpu()).pvalue
+                tof_sig = tof_p <= sig_level
+            else:
+                tof_sig = False
+
+            # Determine significance for ToF RMSE_z
+            if method != best_z_method:
+                z_p = ttest_rel(ref_z[:N_z].cpu(), z_tof[:N_z].cpu()).pvalue
+                z_sig = z_p <= sig_level
+
+            else:
+                z_sig = False
+
+            # Format output strings with bolding and daggers
+            tof_str = format_val(tof_means[method], tof_stds[method], best_tof, digits=2, sig=tof_sig)
+            z_str = format_val(z_means[method], z_stds[method], best_z, digits=2, sig=z_sig)
+
+            print(f"{method} & {tof_str} & {z_str} \\\\")
+
+        print("\\bottomrule")
+        print("\\end{tabular}")
+    
+    @staticmethod
     def plot_ellipt(outputs_dir):
-        # Define the ef(phi) function using PyTorch tensors
         def ef(phi, epsilon=0.73, theta=0.0):
             return (epsilon**2) / (epsilon**2 * torch.cos(phi - theta)**2 + torch.sin(phi - theta)**2)
 
-        # Create phi values in radians (PyTorch tensor)
-        phi_rad = torch.linspace(-torch.pi, torch.pi, 1000)
-        phi_deg = phi_rad * 180 / torch.pi  # convert to degrees
+        # Create phi values in radians and degrees
+        phi_rad = torch.linspace(0, 2 * torch.pi, 1000)  # 0° to 360°
+        phi_deg = phi_rad * 180 / torch.pi               # convert to degrees
 
-        # Calculate ef(phi) for different epsilons (PyTorch tensors)
+        # Calculate ef(phi) for different epsilons
         epsilons = [1.0, 0.9, 0.73, 0.5, 0.3]
         ef_values = {eps: ef(phi_rad, epsilon=eps) for eps in epsilons}
 
-        # Original tab10 colors, minus red
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b']
 
-        # Plotting with matplotlib (convert tensors to numpy arrays for plotting)
+        # Reorder phi_deg to start from 180° (i.e., shift by half a circle)
+        shift_deg = 180
+        shifted_phi_deg = (phi_deg + shift_deg) % 360  # wrap-around
+        sort_idx = torch.argsort(shifted_phi_deg)      # sort for plotting
+
+        # Plot
         fig, ax = plt.subplots(figsize=(9, 4.5))
         for eps, color in zip(epsilons, colors):
-            ax.plot(phi_deg.numpy(), ef_values[eps].numpy(), label=f"$\\varepsilon = {eps}$", color=color)
+            ef_shifted = ef_values[eps][sort_idx]
+            ax.plot(shifted_phi_deg[sort_idx].numpy(), ef_shifted.numpy(), label=f"$\\varepsilon = {eps}$", color=color)
 
-        # Set large fonts for this specific plot
+        # Bottom axis ticks: degrees, from 180° → 0° → 157.5°
+        tof_angles = torch.arange(0, 360, 22.5)  # [0, 22.5, ..., 337.5]
+        shifted_ticks = (tof_angles + shift_deg) % 360
+        ax.set_xticks(shifted_ticks)
+        ax.set_xticklabels([f"{int(tick)}" for tick in tof_angles])
+
         ax.set_xlabel(r"$\phi$ [°]", fontsize=16)
         ax.set_ylabel(r"$\text{ef}(\phi)$", fontsize=16)
-        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=14)
         ax.legend(fontsize=14)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.axvline(0, color='gray', linestyle='--', linewidth=1)
-        plt.tight_layout()
 
-        # Make sure output directory exists
+        # Secondary TOF axis: 10 to 16, then 1 to 9
+        tof_labels = list(range(1, 17)) #list(range(10, 17)) + list(range(1, 10))
+        secax = ax.secondary_xaxis('top')
+        secax.set_xticks(shifted_ticks)
+        secax.set_xticklabels([str(tof) for tof in tof_labels])
+        secax.set_xlabel("TOF [#]", fontsize=16)
+        secax.tick_params(axis='x', labelsize=14)
+
+        plt.tight_layout()
         os.makedirs(outputs_dir, exist_ok=True)
-        plt.savefig(outputs_dir+'ellipt.pdf')
+        plt.savefig(os.path.join(outputs_dir, 'ellipt.pdf'))
+        plt.close()
 
 def eval_model(model, data):
     with torch.no_grad():
@@ -1111,15 +1302,15 @@ if __name__ == "__main__":
         test_case = 0
 
     if test_case == 0:
-        model_dict = {"1TOF model": "outputs/tof_reconstructor/g0ebnecw/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
-             "3TOF model": "outputs/tof_reconstructor/d0ccdqnp/checkpoints",
-             "General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
-             "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
+        model_dict = {"1TOF Model": "outputs/tof_reconstructor/g0ebnecw/checkpoints",
+             "2TOF Model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+             "3TOF Model": "outputs/tof_reconstructor/d0ccdqnp/checkpoints",
+             "General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+             "Spec Model": "outputs/tof_reconstructor/1qo21nap/checkpoints"}
         e: Evaluator = Evaluator(model_dict, torch.device('cuda') if torch.cuda.is_available() else torch.get_default_device())
         if job_id is None or job_id == 0:
-            e.measure_time("General model", device="cpu")
-            e.measure_time("General model", device="cuda")
+            e.measure_time("General Model", device="cpu")
+            e.measure_time("General Model", device="cuda")
             result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(model_dict.keys(), i) for i in range(1)}
             e.persist_var(result_dict, 'denoising.pkl')
             print(Evaluator.result_dict_to_latex(result_dict, statistics_table=False))
@@ -1135,12 +1326,12 @@ if __name__ == "__main__":
             print(Evaluator.result_dict_to_latex(result_dict, statistics_table=True))
         
             # 1.3 heatmap plot rmse 1 TOF missing
-            rmse_tensor = e.one_missing_tof_rmse_tensor(e.model_dict["General model"])
+            rmse_tensor = e.one_missing_tof_rmse_tensor("General Model")
             e.persist_var(rmse_tensor, rmse_tensor_file)
             e.plot_rmse_tensor(rmse_tensor.cpu())
     
         # 1.4 heatmap plot rmse 2 TOFs missing
-        mse_matrix = e.two_missing_tofs_rmse_matrix(e.model_dict["General model"], job_id, total_job_count)
+        mse_matrix = e.two_missing_tofs_rmse_matrix("General Model", job_id, total_job_count)
         if os.path.exists(os.path.join(e.output_dir, rmse_tensor_file)):
             with open(os.path.join(e.output_dir, rmse_tensor_file), 'rb') as file:
                 rmse_tensor = pickle.load(file)
@@ -1177,8 +1368,8 @@ if __name__ == "__main__":
              "CAE-512": "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
              "CAE-1024": "outputs/tof_reconstructor/1fgqdg17/checkpoints/",
              "UNet-512": "outputs/tof_reconstructor/n6od82ls/checkpoints/",
-             "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
-             "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+             "Spec Model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
+             "2TOF Model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
              "4TOF": "outputs/tof_reconstructor/lxfy2zgs/checkpoints",
              "5TOF": "outputs/tof_reconstructor/5y9vu48g/checkpoints",
              "AdamW": "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
@@ -1190,7 +1381,7 @@ if __name__ == "__main__":
         e.plot_spectrogram_detector_image(3, 21)
         e.plot_spectrogram_detector_image(3, 21, hot_enabled=True)
         # simulated sample denoised+rec
-        e.plot_reconstructing_tofs_comparison([7, 12], ["Spec model"])
+        e.plot_reconstructing_tofs_comparison([7, 12], ["Spec Model"])
         
         # AdamW vs Adam
         e.plot_real_data(42, model_label_list=["AdamW", "Adam"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="adamw", show_label=True, additional_transform_labels={})
@@ -1363,9 +1554,9 @@ if __name__ == "__main__":
         print(stack)
     elif test_case== 7:
         min_max = lambda x: (x-x.min())/(x.max()-x.min())
-        e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
-                                  "Spec model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
-                                  "2TOF model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
+        e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+                                  "Spec Model": "outputs/tof_reconstructor/1qo21nap/checkpoints",
+                                  "2TOF Model": "outputs/tof_reconstructor/j75cmjsq/checkpoints",
                                  }, device=torch.device('cuda'), output_dir="outputs/", load_max=10000, pac_man=True)
         for i,its_override in enumerate([10, None, 100, 100]):
             hot_enabled=True if i==3 else False
@@ -1373,27 +1564,56 @@ if __name__ == "__main__":
             X, Y, out = Evaluator.pacman_spectrogram_simulation(e.model_dict["Pacman"], 3, 21, its_override=its_override, hot_enabled=hot_enabled)
             Evaluator.save_spectrogram_detector_image_plot(min_max(out[0][0]), min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps"+label_appendix+".pdf", Z=out[2][0])
         for i in range(5):
-            e.plot_real_data(42+i, model_label_list=["General model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
+            e.plot_real_data(42+i, model_label_list=["General Model", "Pacman"], input_transform=DisableSpecificTOFs([4,5]), add_to_label="pacman", show_label=True, additional_transform_labels={})
         for i in range(5):
-            e.plot_reconstructing_tofs_comparison([7, 12], ["General model", "Pacman"], sample_id=i)
+            e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Pacman"], sample_id=i)
             
         e.plot_real_data(
-            42, model_label_list=["Neighboring Mean", "Pacman", "Spec model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs_other", additional_transform_labels={"Wiener": Wiener()}, show_label=True)
-        e.plot_reconstructing_tofs_comparison([7, 12], ["General model", "Spec model", "Pacman", "Neighboring Mean"], sample_id=0)
+            42, model_label_list=["Neighboring Mean", "Pacman", "Spec Model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs_other", additional_transform_labels={"Wiener": Wiener()}, show_label=True)
+        e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Spec Model", "Pacman", "Neighboring Mean"], sample_id=0)
         results_dict = {}
         
-        for model_label in ["General model", "Pacman"]:
+        for model_label in ["General Model", "Pacman"]:
             results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000)
 
         e.persist_var(results_dict, "pacman.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
     elif test_case == 8:
         results_dict = {}
-        e: Evaluator = Evaluator({"General model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+        e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
                                  }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
-        for model_label in ["General model", "Pacman"]:
+        for model_label in ["General Model", "Pacman"]:
             results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableRandomTOFs(1, 3)])
         e.persist_var(results_dict, "pacman_rec.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
+    elif test_case == 9:
+        model_dict = {
+            "CAE-32":      "outputs/tof_reconstructor/o6nqth09/checkpoints/",
+            "CAE-64":      "outputs/tof_reconstructor/hj69jsmh/checkpoints/",
+            "CAE-128":     "outputs/tof_reconstructor/gvd9sv1x/checkpoints/",
+            "CAE-256":     "outputs/tof_reconstructor/0ys8nmh7/checkpoints/",
+            "CAE-512":     "outputs/tof_reconstructor/o8tdxj44/checkpoints/",
+            "CAE-1024":    "outputs/tof_reconstructor/1fgqdg17/checkpoints/",
+            "UNet-512":    "outputs/tof_reconstructor/n6od82ls/checkpoints/",
+            "Spec Model":  "outputs/tof_reconstructor/1qo21nap/checkpoints/",
+            "1TOF Model":  "outputs/tof_reconstructor/g0ebnecw/checkpoints/",
+            "2TOF Model":  "outputs/tof_reconstructor/j75cmjsq/checkpoints/",
+            "3TOF Model":  "outputs/tof_reconstructor/d0ccdqnp/checkpoints/",
+        }
+        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=False)
+        input_transform = Compose(
+                    e.initial_input_transforms
+                    + [
+                        DisableRandomTOFs(1,3),
+                        PerImageNormalize(),
+                    ]
+                    )
+        results_dict = {}
+        for model_label in list(model_dict.keys())+["Neigboring Mean", "Pacman"]:
+            torch.manual_seed(42)
+            results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
+        e.persist_var(results_dict, "tof_rmse.pkl")
+        Evaluator.format_tof_rmse_table_with_significance(results_dict)
+
     else:
         print("Test case not found")

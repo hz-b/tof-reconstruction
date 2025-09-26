@@ -44,8 +44,8 @@ def Job(joblist):
     PHASE_STEPS = 80  # 1st dimension of Y
     ENERGY_STEPS = 60  # 2nd dimension of X and Y
 
-    sigmax_max = 7
-    sigmay_max = 7
+    sigmax_max = PULSE
+    sigmay_max = PULSE
 
     TILT = (np.pi,)
     ENERGY_GAUSS = 1  # further partial wave properties(tilt and width)
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     kick_max = 100
     ellipt = 0.73
     elltilt = (90 - 22.5) / 180 * np.pi
-    pulse = 30
+    pulse = 7
     if phase_separation_mode:
         for phase_step in range(0, 80):
             Ltodo.append(
