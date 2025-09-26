@@ -327,9 +327,8 @@ class Evaluator:
     @staticmethod
     def min_max(x):
         # Compute min and max per sample
-        dims = tuple(range(1, x.ndim))
-        min_val = x.min(dim=dims, keepdim=True).values
-        max_val = x.max(dim=dims, keepdim=True).values
+        min_val = x.min(dim=1, keepdim=True).values
+        max_val = x.max(dim=1, keepdim=True).values
         return (x - min_val) / (max_val - min_val)
 
 
@@ -338,18 +337,22 @@ class Evaluator:
         channels = x.shape[-2]
         tof_count = x.shape[-1] - 2 * model.padding
         x = x.flatten(start_dim=1)
-        y = y.flatten(start_dim=1).to(model.device)
+        y = y.flatten(start_dim=1)
         with torch.no_grad():
             y_hat = model(x.to(model.device))
+        if model_label == "Pacman":
+            y_hat = y_hat[0]
+
+        y_hat = y_hat.to(torch.device('cpu'))
 
         y_hat = y_hat.reshape(-1, channels, tof_count + 2*model.padding)
         if model.padding != 0:
             y_hat = y_hat[:, :, model.padding:-model.padding]
         y_hat = y_hat.flatten(start_dim=1)
         
-        y_hat_copy = y_hat
+        y_hat_copy = y_hat.clone()
         if model_label == "Pacman":
-            y_hat = min_max(y_hat)
+            y_hat = Evaluator.min_max(y_hat)
         
         if extended_losses:
             test_diff = y_hat - y
@@ -1600,7 +1603,7 @@ if __name__ == "__main__":
             "2TOF Model":  "outputs/tof_reconstructor/j75cmjsq/checkpoints/",
             "3TOF Model":  "outputs/tof_reconstructor/d0ccdqnp/checkpoints/",
         }
-        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=False)
+        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=True)
         input_transform = Compose(
                     e.initial_input_transforms
                     + [
@@ -1609,7 +1612,7 @@ if __name__ == "__main__":
                     ]
                     )
         results_dict = {}
-        for model_label in list(model_dict.keys())+["Neigboring Mean", "Pacman"]:
+        for model_label in list(model_dict.keys())+["Neighboring Mean", "Pacman"]:
             torch.manual_seed(42)
             results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
         e.persist_var(results_dict, "tof_rmse.pkl")

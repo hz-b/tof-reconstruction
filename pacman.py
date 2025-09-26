@@ -16,6 +16,7 @@ class PacMan(torch.nn.Module):
         self.phaseg =  linspace(0,2*pi,80)
         self.basis = self.basis()
         self.padding = 0
+        self.device = torch.device('cpu')
 
     def forward(self, img, its_override=None):
         img_cpu = img.cpu()
