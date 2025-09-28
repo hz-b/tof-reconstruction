@@ -588,6 +588,8 @@ class Evaluator:
 
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None, min_max_normalize_labels=["Pacman"]):
+        min_max = lambda x: (x - x.min()) / (x.max() - x.min())
+        z_score = lambda x: (x - x.mean()) / x.std()
         if len(data_list) > 3:
             if len(data_list) == 4:
                 columns = 2
@@ -607,15 +609,15 @@ class Evaluator:
             if cur_col == 0:
                 ax[cur_row, cur_col].set_ylabel("Kinetic energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], Evaluator.min_max(data_list[i]), title_list[i], rows!=1)
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1)
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
             if i != label_index and show_rmse:
                 data_list_entry = data_list[i]
                 if title_list[i] in min_max_normalize_labels:
-                    data_list_entry = Evaluator.min_max(data_list_entry)
+                    data_list_entry = min_max(data_list_entry)
                 diff = data_list[label_index] - data_list_entry
 
-                diff_z = Evaluator.z_score(data_list[label_index]) - Evaluator.z_score(data_list[i])
+                diff_z = z_score(data_list[label_index]) - z_score(data_list[i])
                 rmse_z = torch.sqrt(torch.mean(diff_z**2))
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
