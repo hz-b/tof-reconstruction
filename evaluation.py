@@ -454,7 +454,7 @@ class Evaluator:
     @staticmethod
     def spec_detector_image_ax(ax, X, fontsize, residual=False):
         out = ax.imshow(np.array(X), aspect=X.shape[1] / X.shape[0], cmap='hot', interpolation="none", origin="lower")
-        ax.set_ylabel("Kinetic Energy [eV]",fontsize=fontsize)
+        ax.set_ylabel("Kinetic energy [eV]",fontsize=fontsize)
         ax.set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)],fontsize=20)
         ax.set_xlabel("TOF position [#]",fontsize=fontsize)
         title = "Residual image" if residual else "Detector image"
@@ -484,7 +484,7 @@ class Evaluator:
     
         # Plot Spectrogram (first image)
         im0 = ax[0].imshow(Y, aspect='auto', cmap='hot', interpolation="none", origin="lower")
-        ax[0].set_ylabel("Photon Energy [eV]", fontsize=fontsize)
+        ax[0].set_ylabel("Photon energy [eV]", fontsize=fontsize)
         ax[0].set_title('Spectrogram', fontsize=fontsize)
         ax[0].set_xlabel('Time [steps]', fontsize=fontsize)
         ax[0].set_xticks(range(0, 100, 20), labels=range(0, 100, 20), fontsize=fontsize)
@@ -605,7 +605,7 @@ class Evaluator:
             cur_row = i // columns
             cur_col = i % columns
             if cur_col == 0:
-                ax[cur_row, cur_col].set_ylabel("Kinetic Energy [eV]")
+                ax[cur_row, cur_col].set_ylabel("Kinetic energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
             out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1)
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
