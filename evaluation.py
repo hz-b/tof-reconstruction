@@ -515,7 +515,7 @@ class Evaluator:
         label_appendix="_hot" if hot_enabled else ""
         X = (X - X.min()) / (X.max() - X.min())
         Y = (Y - Y.min()) / (Y.max() - Y.min())
-        print(X.sum())
+        
         Evaluator.save_spectrogram_detector_image_plot(X, Y, self.output_dir + 'spectrogram_detector_image_'+str(peaks)+'_'+str(seed)+label_appendix+'.pdf')
 
 
@@ -607,12 +607,12 @@ class Evaluator:
             if cur_col == 0:
                 ax[cur_row, cur_col].set_ylabel("Kinetic energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1)
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], Evaluator.min_max(data_list[i]), title_list[i], rows!=1)
             ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
             if i != label_index and show_rmse:
                 data_list_entry = data_list[i]
                 if title_list[i] in min_max_normalize_labels:
-                    data_list_entry = min_max(data_list_entry)
+                    data_list_entry = Evaluator.min_max(data_list_entry)
                 diff = data_list[label_index] - data_list_entry
 
                 diff_z = Evaluator.z_score(data_list[label_index]) - Evaluator.z_score(data_list[i])
@@ -1565,7 +1565,7 @@ if __name__ == "__main__":
             hot_enabled=True if i==3 else False
             label_appendix="_hot" if hot_enabled else ""
             X, Y, out = Evaluator.pacman_spectrogram_simulation(e.model_dict["Pacman"], 3, 21, its_override=its_override, hot_enabled=hot_enabled)
-            Evaluator.save_spectrogram_detector_image_plot(min_max(out[0][0]), min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps"+label_appendix+".pdf", Z=out[2][0])
+            Evaluator.save_spectrogram_detector_image_plot(Evaluator.min_max(out[0][0]), Evaluator.min_max(out[1][0]), output_path=e.output_dir + "pacman_"+str(its_override)+"_steps"+label_appendix+".pdf", Z=out[2][0])
         for i in range(5):
             e.plot_real_data(42+i, model_label_list=["General Model", "Pacman"], input_transform=DisableSpecificTOFs([7,12]), add_to_label="pacman", show_label=True, additional_transform_labels={})
         for i in range(5):
