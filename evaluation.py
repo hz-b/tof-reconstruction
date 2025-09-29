@@ -583,8 +583,8 @@ class Evaluator:
 
 
     @staticmethod
-    def detector_image_ax(ax, data, title, aspect_auto=True):
-        ax.set_xlabel("TOF position [#]")
+    def detector_image_ax(ax, data, title, aspect_auto=True, additional_text=""):
+        ax.set_xlabel("TOF position [#]"+additional_text)
         ax.set_title(title)
         ax.set_xticks(range(0, 16, 5), [str(i) for i in range(1, 17, 5)])
         ax.set_yticks(ticks=list(range(0, 70, 10))+[60], labels=list(range(280, 350, 10))+ [340])
@@ -606,7 +606,7 @@ class Evaluator:
 
 
     @staticmethod
-    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None, min_max_normalize_labels=["Pacman"]):
+    def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, tof_rmse:list=None, min_max_normalize_labels=["Pacman"]):
         min_max = lambda x: (x - x.min()) / (x.max() - x.min())
         z_score = lambda x: (x - x.mean()) / x.std() if x.std() != 0 else x * 0
         if len(data_list) > 3:
@@ -628,8 +628,10 @@ class Evaluator:
             if cur_col == 0:
                 ax[cur_row, cur_col].set_ylabel("Kinetic energy [eV]")
             ax[cur_row, cur_col].spines[['right', 'top']].set_visible(False)
-            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1)
-            ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+            
+            
+            additional_text = ""
+            # TOF RMSE text
             if i != label_index and show_rmse:
                 data_list_entry = data_list[i]
                 if title_list[i] in min_max_normalize_labels:
@@ -640,35 +642,27 @@ class Evaluator:
                 rmse_z = torch.sqrt(torch.mean(diff_z**2))
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
-                ax[cur_row, cur_col].text(0.5, -0.4, f'RMSE: {rmse.item()*100:.2f}, Z-RMSE: {rmse_z.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
+                additional_text += f'\nRMSE: {rmse.item()*100:.2f} Z-RMSE: {rmse_z.item():.2f}'
             if i!= label_index and tof_rmse is not None:
                 diff = data_list[label_index] - data_list_entry
                 diff = diff[tof_rmse]
+                
+                diff_z_tof = diff_z[tof_rmse]
+                rmse_z_tof = (diff_z_tof ** 2).mean().sqrt()
+                
                 mse = torch.mean(diff ** 2)
                 rmse = torch.sqrt(mse)
-                ax[cur_row, cur_col].text(0.5, -0.5, f'Reconstruction RMSE: {rmse.item():.2f}', transform=ax[cur_row, cur_col].transAxes, ha='center', va='top', fontsize=10)
+                add_sep = " " if columns < 3 else "\n"
+                additional_text += f'\nT-RMSE: {rmse.item()*100:.2f}'+add_sep+f'TZ-RMSE: {rmse_z_tof.item():.2f}'               
+
+            out = Evaluator.detector_image_ax(ax[cur_row, cur_col], min_max(data_list[i]), title_list[i], rows!=1, additional_text=additional_text)
+            ax[cur_row, cur_col].set_yticks(ticks=range(0, 70, 10), labels=range(280, 350, 10))
+
         for i in range(len(data_list), rows*columns):
             cur_row = i // columns
             cur_col = i % columns
             ax[cur_row, cur_col].set_visible(False)
         out.set_clim(vmin=0, vmax=1)
-        if show_braces:
-            # Add bracket for "General" (top two rows)
-            general_bracket = patches.FancyArrowPatch(
-                (0.00, 1.0), (0.00, 0.25),
-                arrowstyle='|-|', mutation_scale=4, linewidth=2
-            )
-            fig.add_artist(general_bracket)
-            fig.text(-0.02, 0.62, 'General', va='center', ha='center', rotation=90)
-
-            # Add bracket for "Other" (bottom row)
-            other_bracket = patches.FancyArrowPatch(
-                (0.00, 0.25), (0.00, 0.0),
-                arrowstyle='|-|', mutation_scale=4, linewidth=2
-            )
-            fig.add_artist(other_bracket)
-            fig.text(-0.02, 0.125, 'Other', va='center', ha='center', rotation=90)
-
 
         plt.tight_layout()
         fig.colorbar(out, ax=ax, shrink=0.49, label='Intensity [arb.u.]')
@@ -959,7 +953,7 @@ class Evaluator:
         )
         
         
-    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_real_data=True, show_label=False, show_rmse=False, label_index=0, additional_transform_labels={"Wiener": Wiener()}, show_braces=False):
+    def plot_real_data(self, sample_id, data_path="datasets/210.hdf5", model_label_list=None, input_transform=None, add_to_label="", show_real_data=True, show_label=False, show_rmse=False, label_index=0, additional_transform_labels={"Wiener": Wiener()}):
         evaluated_images_list = []
         evaluated_plot_title_list = []
         if model_label_list is None:
@@ -1018,7 +1012,6 @@ class Evaluator:
             self.output_dir,
             show_rmse=show_rmse,
             label_index=label_index,
-            show_braces=show_braces
         )
     def persist_var(self, save_var, filename):
         with open(os.path.join(self.output_dir, filename), 'wb') as file:
@@ -1413,7 +1406,7 @@ if __name__ == "__main__":
         
         # 2.2 real sample disabled + denoising
         e.plot_real_data(
-            42, model_label_list=architecture_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={}, show_label=True, show_braces=False)
+            42, model_label_list=architecture_keys, input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs", additional_transform_labels={}, show_label=True)
         
         requested_keys = architecture_keys+["Neighboring Mean"]
         result_dict = {str(i)+" random": e.evaluate_n_disabled_tofs(requested_keys, i) for i in range(1,4)}
@@ -1583,11 +1576,11 @@ if __name__ == "__main__":
         for i in range(5):
             e.plot_real_data(42+i, model_label_list=["General Model", "Pacman"], input_transform=DisableSpecificTOFs([7,12]), add_to_label="pacman", show_label=True, additional_transform_labels={})
         for i in range(5):
-            e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Pacman"], sample_id=i)
+            e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Pacman"], sample_id=i, tof_rmse_list=[7,12])
             
         e.plot_real_data(
             42, model_label_list=["Neighboring Mean", "Pacman", "Spec Model"], input_transform=DisableSpecificTOFs([7, 12]), add_to_label="disabled_2_tofs_other", additional_transform_labels={"Wiener": Wiener()}, show_label=True)
-        e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Spec Model", "Pacman", "Neighboring Mean"], sample_id=0)
+        e.plot_reconstructing_tofs_comparison([7, 12], ["General Model", "Spec Model", "Pacman", "Neighboring Mean"], sample_id=0, tof_rmse_list=[7,12])
         results_dict = {}
         
         for model_label in ["General Model", "Pacman"]:
