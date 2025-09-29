@@ -1239,50 +1239,49 @@ class Evaluator:
     
     @staticmethod
     def plot_ellipt(outputs_dir):
-        def ef(phi, epsilon=0.73, theta=0.0):
-            return (epsilon**2) / (epsilon**2 * torch.cos(phi - theta)**2 + torch.sin(phi - theta)**2)
+        # Constants
+        ELL_TILT = (90 - 22.5) / 180 * np.pi  # Tilt in radians
 
-        # Create phi values in radians and degrees
-        phi_rad = torch.linspace(0, 2 * torch.pi, 1000)  # 0° to 360°
-        phi_deg = phi_rad * 180 / torch.pi               # convert to degrees
+        # Generate phase values from 0 to 2π
+        phase_vals = np.linspace(0, 2 * np.pi, 500)
 
-        # Calculate ef(phi) for different epsilons
-        epsilons = [1.0, 0.9, 0.73, 0.5, 0.3]
-        ef_values = {eps: ef(phi_rad, epsilon=eps) for eps in epsilons}
-
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b']
-
-        # Reorder phi_deg to start from 180° (i.e., shift by half a circle)
-        shift_deg = 180
-        shifted_phi_deg = (phi_deg + shift_deg) % 360  # wrap-around
-        sort_idx = torch.argsort(shifted_phi_deg)      # sort for plotting
-
-        # Plot
+        # Start plot
         fig, ax = plt.subplots(figsize=(9, 4.5))
-        for eps, color in zip(epsilons, colors):
-            ef_shifted = ef_values[eps][sort_idx]
-            ax.plot(shifted_phi_deg[sort_idx].numpy(), ef_shifted.numpy(), label=f"$\\varepsilon = {eps}$", color=color)
 
-        # Bottom axis ticks: degrees, from 180° → 0° → 157.5°
-        tof_angles = torch.arange(0, 360, 22.5)  # [0, 22.5, ..., 337.5]
-        shifted_ticks = (tof_angles + shift_deg) % 360
-        ax.set_xticks(shifted_ticks)
-        ax.set_xticklabels([f"{int(tick)}" for tick in tof_angles])
+        # Loop through different ellipticities
+        for ELLIPT in [0.3, 0.73, 1.0]:
+            # Define the ellipticity function
+            def ef(phase):
+                return (ELLIPT) ** 2 / (
+                    (ELLIPT * np.cos(phase - ELL_TILT)) ** 2 + (np.sin(phase - ELL_TILT)) ** 2
+                )
+            
+            # Evaluate the function
+            ef_vals = ef(phase_vals)
+            
+            # Plot each curve
+            ax.plot(phase_vals, ef_vals, label=f'$\\varepsilon = {ELLIPT}$')
 
-        ax.set_xlabel(r"$\phi$ [°]", fontsize=16)
-        ax.set_ylabel(r"$\text{ef}(\phi)$", fontsize=16)
+        # Main axis labels
+        ax.set_xlabel("Angle $\\phi$ [rad]", fontsize=16)
+        ax.set_ylabel("ef($\\phi$)", fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=14)
+        ax.grid(True)
         ax.legend(fontsize=14)
-        ax.grid(True, linestyle='--', alpha=0.7)
 
-        # Secondary TOF axis: 10 to 16, then 1 to 9
-        tof_labels = list(range(1, 17)) #list(range(10, 17)) + list(range(1, 10))
-        secax = ax.secondary_xaxis('top')
-        secax.set_xticks(shifted_ticks)
-        secax.set_xticklabels([str(tof) for tof in tof_labels])
-        secax.set_xlabel("TOF [#]", fontsize=16)
+        # Add secondary x-axis (top)
+        def radians_to_custom(x):
+            return x / (2 * np.pi) * 80
+
+        def custom_to_radians(x):
+            return x / 80 * (2 * np.pi)
+
+        secax = ax.secondary_xaxis('top', functions=(radians_to_custom, custom_to_radians))
+        secax.set_xlabel("Time [step]", fontsize=16)
+        secax.set_xticks(np.linspace(0, 80, 9))  # Optional: neat ticks
         secax.tick_params(axis='x', labelsize=14)
 
+        # Final layout
         plt.tight_layout()
         os.makedirs(outputs_dir, exist_ok=True)
         plt.savefig(os.path.join(outputs_dir, 'ellipt.pdf'))
@@ -1605,7 +1604,7 @@ if __name__ == "__main__":
             "2TOF Model":  "outputs/tof_reconstructor/j75cmjsq/checkpoints/",
             "3TOF Model":  "outputs/tof_reconstructor/d0ccdqnp/checkpoints/",
         }
-        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=True)
+        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=False)
         input_transform = Compose(
                     e.initial_input_transforms
                     + [
@@ -1614,11 +1613,26 @@ if __name__ == "__main__":
                     ]
                     )
         results_dict = {}
-        for model_label in list(model_dict.keys())+["Neighboring Mean", "Pacman"]:
+        for model_label in list(model_dict.keys())+["Neighboring Mean"]:
             torch.manual_seed(42)
             results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
         e.persist_var(results_dict, "tof_rmse.pkl")
         Evaluator.format_tof_rmse_table_with_significance(results_dict)
-
+    elif test_case == 10:
+        e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
+                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
+        input_transform = Compose(
+                            e.initial_input_transforms
+                            + [
+                                DisableRandomTOFs(1,3),
+                                PerImageNormalize(),
+                            ]
+                            )
+        results_dict = {}
+        for model_label in ["Pacman"]:
+            torch.manual_seed(42)
+            results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
+        e.persist_var(results_dict, "tof_pacman_rmse.pkl")
+        Evaluator.format_tof_rmse_table_with_significance(results_dict)
     else:
         print("Test case not found")
