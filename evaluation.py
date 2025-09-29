@@ -307,22 +307,34 @@ class Evaluator:
         test_diff_tensor = torch.cat(test_diff_list)
         z_diff_tensor = torch.cat(z_diff_list)
         tof_diff_tensor = torch.cat(tof_diff_list)
-        z_diff_tensor = torch.cat(z_tof_diff_list)
+        z_tof_diff_tensor = torch.cat(z_tof_diff_list)
         
         return {
             "test_loss": test_diff_tensor,
             "z_loss": z_diff_tensor,
             "tof_loss": tof_diff_tensor,
-            "z_tof_loss": z_diff_tensor,
+            "z_tof_loss": z_tof_diff_tensor,
         }
     
     @staticmethod
     def z_score(x):
-        # Compute mean and std per sample (across all dims except dim=0)
+        # Compute mean and std per sample (dims except dim=0)
         dims = tuple(range(1, x.ndim))
         mean = x.mean(dim=dims, keepdim=True)
         std = x.std(dim=dims, keepdim=True)
-        return (x - mean) / (std)
+
+        # Avoid division by zero: set std to 1 where it's zero
+        safe_std = std.clone()
+        safe_std[safe_std == 0] = 1.
+
+        # Z-score
+        z = (x - mean) / safe_std
+
+        # Set output to 0 where std was originally zero (i.e., constant inputs)
+        zero_std_mask = (std == 0)
+        z = z * (~zero_std_mask)  # this works due to broadcasting
+
+        return z
 
     @staticmethod
     def min_max(x):
@@ -382,7 +394,14 @@ class Evaluator:
             tof_y_hat_copy = y_hat_copy_selected
             tof_diff = (tof_y_hat - tof_y).flatten()
             z_tof_diff = (Evaluator.z_score(tof_y_hat) - Evaluator.z_score(tof_y)).flatten()
-            return test_diff.reshape(-1, channels, tof_count), z_diff.reshape(-1, channels, tof_count), tof_diff.reshape(-1, channels), z_tof_diff.reshape(-1, channels)
+            
+            tof_loss = (tof_diff.reshape(-1, channels)**2).mean(dim=-1)
+            z_tof_loss = (z_tof_diff.reshape(-1, channels)**2).mean(dim=-1)
+            
+            test_loss = (test_diff.reshape(-1, channels, tof_count)**2).mean(dim=[-1,-2])
+            z_loss = (z_diff.reshape(-1, channels, tof_count)**2).mean(dim=[-1,-2])
+            
+            return test_loss, z_loss, tof_loss, z_tof_loss
         else:
             return torch.sqrt(torch.nn.functional.mse_loss(y_hat, y, reduction='none').mean(dim=-1))
 
@@ -589,7 +608,7 @@ class Evaluator:
     @staticmethod
     def plot_detector_image_comparison(data_list, title_list, filename, output_dir, show_rmse=False, label_index=0, show_braces=False, tof_rmse:list=None, min_max_normalize_labels=["Pacman"]):
         min_max = lambda x: (x - x.min()) / (x.max() - x.min())
-        z_score = lambda x: (x - x.mean()) / x.std()
+        z_score = lambda x: (x - x.mean()) / x.std() if x.std() != 0 else x * 0
         if len(data_list) > 3:
             if len(data_list) == 4:
                 columns = 2
@@ -1029,7 +1048,7 @@ class Evaluator:
         torch.cuda.synchronize()
     
     def eval_model_simulation(self, model_label, input_transform=[], limit=None):
-        z_score = lambda x: (x - x.mean()) / x.std()
+        z_score = lambda x: (x - x.mean()) / x.std() if x.std() != 0 else x * 0
         min_max = lambda x: (x - x.min()) / (x.max() - x.min())
         ds = self.test_with_input_transform(Compose(self.initial_input_transforms+input_transform))
         model = self.model_dict[model_label]
@@ -1060,7 +1079,7 @@ class Evaluator:
                 if model_label != "Pacman":
                     output = output.cpu()
 
-                output_z = output
+                output_z = z_score(output.clone())
                 
                 if model_label == "Pacman":
                     output = min_max(output)
@@ -1070,7 +1089,7 @@ class Evaluator:
                 time_list.append(elapsed_time)
                 squared_error = (output-label[j])**2
                 squared_error_list.append(squared_error[0])
-                squared_z_error = (output_z-z_score(label[j]))
+                squared_z_error = (output_z-z_score(label[j]))**2
                 z_error_list.append(squared_z_error[0])
                 if limit is not None and len(time_list) >= limit:
                     break
@@ -1119,7 +1138,7 @@ class Evaluator:
 
         for name, (squared_errors, z_errors, times) in results_dict.items():
             rmse_per_run = torch.sqrt((squared_errors).mean(dim=(1, 2)))      # [500]
-            rmse_z_per_run = torch.sqrt((z_errors ** 2).mean(dim=(1, 2)))  # [500]
+            rmse_z_per_run = torch.sqrt((z_errors).mean(dim=(1, 2)))  # [500]
             rmse_data[name] = rmse_per_run
             rmse_z_data[name] = rmse_z_per_run
             time_data[name] = times  # Already shape [500]
@@ -1160,12 +1179,6 @@ class Evaluator:
 
     @staticmethod
     def format_tof_rmse_table_with_significance(result_dict, sig_level=0.01):
-        def se(x):
-            return (x**2).mean(dim=-1).sqrt()
-
-        def rmse_std(x):
-            return (x**2).mean(dim=-1).sqrt()
-
         def format_val(mean, std, best, digits=2, sig=False):
             fmt = f"{{:.{digits}f}}"
             val_str = fmt.format(mean)
@@ -1183,10 +1196,10 @@ class Evaluator:
             tof = result_dict[method]["tof_loss"]
             z_tof = result_dict[method]["z_tof_loss"]
 
-            tof_means[method] = se(tof).mean().item() * 100
-            z_means[method] = se(z_tof).mean().item()
-            tof_stds[method] = rmse_std(tof).std().item() * 100
-            z_stds[method] = rmse_std(z_tof).std().item()
+            tof_means[method] = tof.mean().sqrt().item() * 100
+            z_means[method] = z_tof.mean().sqrt().item()
+            tof_stds[method] = tof.std().sqrt().item() * 100
+            z_stds[method] = z_tof.std().sqrt().item()
 
         # Identify best methods per column
         best_tof = min(tof_means.values())
@@ -1196,8 +1209,8 @@ class Evaluator:
         best_z_method = min(z_means, key=z_means.get)
 
         # Extract reference tensors for significance tests
-        ref_tof = se(result_dict[best_tof_method]["tof_loss"])
-        ref_z = se(result_dict[best_z_method]["z_tof_loss"])
+        ref_tof = result_dict[best_tof_method]["tof_loss"].sqrt()
+        ref_z = result_dict[best_z_method]["z_tof_loss"].sqrt()
 
         # Start LaTeX table output
         print("\\begin{tabular}{lrr}")
@@ -1206,8 +1219,8 @@ class Evaluator:
         print("\\midrule")
 
         for method in result_dict:
-            tof = se(result_dict[method]["tof_loss"])
-            z_tof = se(result_dict[method]["z_tof_loss"])
+            tof = result_dict[method]["tof_loss"].sqrt()
+            z_tof = result_dict[method]["z_tof_loss"].sqrt()
 
             # Truncate to match reference lengths to avoid shape issues
             N_tof = min(len(tof), len(ref_tof))
@@ -1585,8 +1598,8 @@ if __name__ == "__main__":
     elif test_case == 8:
         results_dict = {}
         e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
-                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
-        for model_label in ["General Model", "Pacman"]:
+                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=False)
+        for model_label in ["General Model"]:
             results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableRandomTOFs(1, 3)])
         e.persist_var(results_dict, "pacman_rec.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
@@ -1604,7 +1617,7 @@ if __name__ == "__main__":
             "2TOF Model":  "outputs/tof_reconstructor/j75cmjsq/checkpoints/",
             "3TOF Model":  "outputs/tof_reconstructor/d0ccdqnp/checkpoints/",
         }
-        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=False)
+        e: Evaluator = Evaluator(model_dict, device=torch.device('cuda'), output_dir="outputs/", load_max=None, pac_man=True)
         input_transform = Compose(
                     e.initial_input_transforms
                     + [
@@ -1613,26 +1626,10 @@ if __name__ == "__main__":
                     ]
                     )
         results_dict = {}
-        for model_label in list(model_dict.keys())+["Neighboring Mean"]:
+        for model_label in list(model_dict.keys()):
             torch.manual_seed(42)
             results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
         e.persist_var(results_dict, "tof_rmse.pkl")
-        Evaluator.format_tof_rmse_table_with_significance(results_dict)
-    elif test_case == 10:
-        e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
-                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
-        input_transform = Compose(
-                            e.initial_input_transforms
-                            + [
-                                DisableRandomTOFs(1,3),
-                                PerImageNormalize(),
-                            ]
-                            )
-        results_dict = {}
-        for model_label in ["Pacman"]:
-            torch.manual_seed(42)
-            results_dict[model_label] = e.evaluate_extended_rmse(model_label, input_transform, pacman_limit=1000)
-        e.persist_var(results_dict, "tof_pacman_rmse.pkl")
         Evaluator.format_tof_rmse_table_with_significance(results_dict)
     else:
         print("Test case not found")
