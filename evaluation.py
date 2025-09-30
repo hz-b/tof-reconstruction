@@ -1591,8 +1591,8 @@ if __name__ == "__main__":
     elif test_case == 8:
         results_dict = {}
         e: Evaluator = Evaluator({"General Model": "outputs/tof_reconstructor/hj69jsmh/checkpoints",
-                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=False)
-        for model_label in ["General Model"]:
+                                 }, device=torch.device('cpu'), output_dir="outputs/", load_max=10000, pac_man=True)
+        for model_label in ["General Model", "Pacman"]:
             results_dict[model_label] = e.eval_model_simulation(model_label, limit=1000, input_transform=[DisableRandomTOFs(1, 3)])
         e.persist_var(results_dict, "pacman_rec.pkl")
         Evaluator.print_rmse_time_comparison(results_dict)
