@@ -33,9 +33,12 @@ import numpy as np
 import pickle
 from pacman import PacMan
 import time
+from matplotlib.ticker import FuncFormatter
 
 torch.manual_seed(42)
 
+def space_thousands(x, pos):
+    return f"{int(x):,}".replace(",", "\u202f")
 
 class MeanModel(torch.nn.Module):
     def __init__(self, tof_count, device):
@@ -865,9 +868,11 @@ class Evaluator:
 
     @staticmethod
     def plot_gasdet_electron_int(
-        data_path="datasets/210.hdf5", 
-        sample_count=None, 
-        hdf_attribute="gasdet_after_att_mJ"
+        data_path="datasets/210.hdf5",
+        sample_count=None,
+        hdf_attribute="gasdet_after_att_mJ",
+        figsize=(4.33, 1.96), 
+        dpi=300
     ):
         # Load data from HDF5
         f = h5py.File(data_path, 'r')
@@ -875,38 +880,43 @@ class Evaluator:
         gmd = f[hdf_attribute][:sample_count]
         X = gmd[:, 0]
         Y = [np.sum(imgs[i]) for i in range(imgs.shape[0])]
-    
+
         # Convert to numpy arrays
         x = np.array(X)
         y = np.array(Y)
-    
+
         # Mask to filter data
         mask = (x > 0.02) & (y > 9000)
         x_cut = x[mask]
         y_cut = y[mask]
-    
+
         slope, intercept = np.polyfit(x_cut, y_cut, 1)
         x_plot = np.concatenate(([0], x))
-    
-        # Define fit line for visualization
-        y_fit = slope * x_plot# + intercept
-    
-        # Colors for scatter and fit line
+        y_fit = slope * x_plot
+
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+        # Colors
         colors = plt.cm.tab10.colors
         scatter_color = colors[0]
         line_color = colors[1]
-    
+
         # Plotting
-        plt.scatter(x, y-intercept, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
-        plt.plot(x_plot, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
-        plt.xlim(0, None)
-        
-    
-        plt.xlabel('Gas Monitor Detector [mJ]')
-        plt.ylabel('Electron Intensity [arb.u.]')
+        ax.scatter(x, y - intercept, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
+        ax.plot(x_plot, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
+
+        ax.xaxis.set_major_formatter(FuncFormatter(space_thousands))
+        ax.yaxis.set_major_formatter(FuncFormatter(space_thousands))
+        ax.set_xlim(0, None)
+
+        ax.set_xlabel('Gas Monitor Detector [mJ]')
+        ax.set_ylabel('Electron Intensity [arb.u.]')
+        ax.legend()
+
+        plt.tight_layout()
         plt.savefig('outputs/saturation.png', bbox_inches='tight')
         plt.show()
-
+        
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, tofs_to_evaluate=None):
         real_images = TOFReconstructor.get_real_data(
                 0, sample_limit, "datasets/210.hdf5"
