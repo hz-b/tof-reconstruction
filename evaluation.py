@@ -871,7 +871,7 @@ class Evaluator:
         data_path="datasets/210.hdf5",
         sample_count=None,
         hdf_attribute="gasdet_after_att_mJ",
-        figsize=(4.33, 1.96), 
+        figsize=(4.33, 2.20), 
         dpi=300
     ):
         # Load data from HDF5
@@ -893,8 +893,8 @@ class Evaluator:
         slope, intercept = np.polyfit(x_cut, y_cut, 1)
         x_plot = np.concatenate(([0], x))
         y_fit = slope * x_plot
-
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi, constrained_layout=True)
 
         # Colors
         colors = plt.cm.tab10.colors
@@ -905,16 +905,13 @@ class Evaluator:
         ax.scatter(x, y - intercept, color=scatter_color, s=0.8, alpha=0.8, label='Baseline Corrected Data')
         ax.plot(x_plot, y_fit, color=line_color, label=f'Fit: y = {slope:.2f}x + {intercept:.2f}')
 
-        ax.xaxis.set_major_formatter(FuncFormatter(space_thousands))
         ax.yaxis.set_major_formatter(FuncFormatter(space_thousands))
         ax.set_xlim(0, None)
 
         ax.set_xlabel('Gas Monitor Detector [mJ]')
         ax.set_ylabel('Electron Intensity [arb.u.]')
-        ax.legend()
 
-        plt.tight_layout()
-        plt.savefig('outputs/saturation.png', bbox_inches='tight')
+        plt.savefig('outputs/saturation.png')
         plt.show()
         
     def eval_real_rec(self, sample_limit, model_label, input_transform=None, output_transform=None, tofs_to_evaluate=None):
