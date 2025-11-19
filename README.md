@@ -50,6 +50,7 @@ If you find this useful in your research, please consider citing:
     }
     
 Pacman and real-world dataset is based on:
+
 [Attosecond time–energy structure of X-ray free-electron laser pulses.](https://www.nature.com/articles/s41566-018-0107-6)
 
     @article{Hartmann2018,
