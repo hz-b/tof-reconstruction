@@ -1,3 +1,7 @@
+# #!/usr/bin/env python3
+# Created by the authors of publication https://www.nature.com/articles/s41566-018-0107-6
+# Adapted by David Meier in Sep 2025
+
 import numpy as np
 from numpy import arange, pi, linspace, cos, zeros, array, sin, einsum, where, append, mean, diff, digitize, sum
 from scipy.optimize import minimize
@@ -115,9 +119,6 @@ class PacMan(torch.nn.Module):
             acg+=eat_fac*-redbasis[idx]
             out.append(idx)
             acg[acg<0]=0
-            #if np.mean(acg)<6: # 0.1296:#this value needs to be optimized ##6
-            #    print('breaking:',ii)
-            #    break
         return out, acg
     
     def rec_to_image(self, rec, optimized_kick):
@@ -140,7 +141,6 @@ class PacMan(torch.nn.Module):
         ax[3].set_title('Res')
         plt.tight_layout()
         plt.savefig('./raw_rec_spec.png')
-        #zero padding is needed for raw!!!
     
     def overall_pacman(self, dsim, basis, kickg, its_override=None):
         initial_kick = self.estimate_kick(dsim)

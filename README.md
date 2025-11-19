@@ -33,14 +33,35 @@ e.plot_reconstructing_tofs_comparison([7, 12], "General model")
 
 If you find this useful in your research, please consider citing:
 
-[Reconstructing Time-of-Flight Detector Values of Angular Streaking Using Machine Learning.](https://doi.org/10.48550/arXiv.2501.08966)
+[Reconstructing Time-of-Flight Detector Values of Angular Streaking Using Machine Learning.](https://link.aps.org/doi/10.1103/csvm-858f)
 
-    @misc{meier2025reconstructingtimeofflightdetectorvalues,
-      title={Reconstructing Time-of-Flight Detector Values of Angular Streaking Using Machine Learning}, 
-      author={David Meier and Wolfram Helml and Thorsten Otto and Bernhard Sick and Jens Viefhaus and Gregor Hartmann},
-      year={2025},
-      eprint={2501.08966},
-      archivePrefix={arXiv},
-      primaryClass={physics.data-an},
-      url={https://arxiv.org/abs/2501.08966}, 
+    @article{Meier2025,
+      title = {Reconstructing time-of-flight detector values of angular streaking using machine learning},
+      author = {Meier, David and Viefhaus, Jens and Hartmann, Gregor and Helml, Wolfram and Otto, Thorsten and Sick, Bernhard},
+      journal = {Phys. Rev. Accel. Beams},
+      volume = {28},
+      issue = {7},
+      pages = {074601},
+      numpages = {21},
+      year = {2025},
+      month = {6},
+      publisher = {American Physical Society},
+      doi = {10.1103/csvm-858f},
+    }
+    
+Pacman and real-world dataset is based on:
+[Attosecond time–energy structure of X-ray free-electron laser pulses.](https://www.nature.com/articles/s41566-018-0107-6)
+
+    @article{Hartmann2018,
+      title = {Attosecond time–energy structure of X-ray free-electron laser pulses},
+      volume = {12},
+      ISSN = {1749-4893},
+      DOI = {10.1038/s41566-018-0107-6},
+      number = {4},
+      journal = {Nature Photonics},
+      publisher = {Springer Science and Business Media LLC},
+      author = {Hartmann,  N. and Hartmann,  G. and Heider,  R. and Wagner,  M. S. and Ilchen,  M. and Buck,  J. and Lindahl,  A. O. and Benko,  C. and Gr\"{u}nert,  J. and Krzywinski,  J. and Liu,  J. and Lutman,  A. A. and Marinelli,  A. and Maxwell,  T. and Miahnahri,  A. A. and Moeller,  S. P. and Planas,  M. and Robinson,  J. and Kazansky,  A. K. and Kabachnik,  N. M. and Viefhaus,  J. and Feurer,  T. and Kienberger,  R. and Coffee,  R. N. and Helml,  W.},
+      year = {2018},
+      month = {3},
+      pages = {215–220}
     }
